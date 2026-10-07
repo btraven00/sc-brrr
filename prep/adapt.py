@@ -48,6 +48,7 @@ def main():
     a.var["gene_id"] = a.var_names
     a.var_names = a.var["feature_name"].astype(str)
     a.var_names_make_unique()
+    a.var.index.name = None  # else it clashes with the (non-unique) feature_name column
 
     out = args.output_dir
     out.mkdir(parents=True, exist_ok=True)
