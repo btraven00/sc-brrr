@@ -76,6 +76,22 @@ Every size in every format, with its sha256 and the prep run metadata, goes to Z
 
 = Resource limits
 
+== Budget and projections (Phase 0)
+
+Phase 0 runs 10k, 50k and 100k cells with 6 GB RAM and 8 pinned cores per job; 5 min per timed method, 20 min for the untimed reference. Projections from 10k and 50k (laptop, single runs, float64 PCA, rapids freeing the host copy). Memory is linear in cells; time is a per-step power law, with GPU exponents below 1 replaced by the expected large-n scaling (brute kNN quadratic):
+
+#table(
+  columns: (auto, auto, auto, auto, auto),
+  table.header([*method*], [*RSS 0.5M*], [*RSS 2M*], [*time 0.5M*], [*time 2M*]),
+  [reference (exact kNN)], [5.1 GB], [18.9 GB], [~10–13 min], [~2–2.5 h],
+  [scanpy defaults], [5.8 GB], [21.3 GB], [~2 min], [~8 min],
+  [rapids (GPU)], [4.6 GB (+7.6 GB VRAM)], [13.5 GB (+~30 GB VRAM)], [~45 s], [~10 min],
+)
+
+- 6 GB holds to about 0.5M cells. At 2M every method needs 13–21 GB of RAM, and rapids needs more VRAM than an L4 has (24 GB), mostly because of float64 PCA. #tbd[float32 PCA, chunked PCA (`chunked=True`, cuML IncrementalPCA) or Dask/zarr streaming PCA for Phase 1].
+- These assume the Phase 0 density (~500 non-zeros per cell after HVG selection); a Phase 1 atlas scales with its own non-zero count.
+
+
 `resources:` in a plan is only a scheduling hint: Snakemake's local executor does not kill a job that goes over it. The limits are enforced from outside `ob`. A job killed for memory or time counts as *failed*, and the cause is recorded.
 
 == Timed runs on `x86-nvidia`: Slurm

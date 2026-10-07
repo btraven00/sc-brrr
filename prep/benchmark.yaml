@@ -109,5 +109,5 @@ stages:
         software_environment: scanpy
         repository: {url: "..", commit: "3d58fb5", entrypoint: export}
         parameters:
-          - n_cells: [10000, 50000, 0]
+          - n_cells: [10000, 50000, 100000]   # Phase 0 ladder; Phase 1 uses a larger atlas
             random_seed: 0

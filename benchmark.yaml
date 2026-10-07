@@ -30,12 +30,12 @@ stages:
         repository: {url: https://github.com/btraven00/omni-data, commit: b4d6c62}
         parameters:
           - {uri: "file:///home/b/phd/sc-brrr/data/prep/hao2021_50k.h5ad", uri_type: file}
-      - id: hao2021_all
-        provides: {size: "all"}
+      - id: hao2021_100k
+        provides: {size: "100k"}
         software_environment: omni-data
         repository: {url: https://github.com/btraven00/omni-data, commit: b4d6c62}
         parameters:
-          - {uri: "file:///home/b/phd/sc-brrr/data/prep/hao2021_all.h5ad", uri_type: file}
+          - {uri: "file:///home/b/phd/sc-brrr/data/prep/hao2021_100k.h5ad", uri_type: file}
 
   # Timed stage. Every method writes the same three files.
   - id: pipeline
@@ -44,14 +44,15 @@ stages:
       - {id: embedding_tsv, path: "{name}_embedding.tsv"}
       - {id: neighbors_h5, path: "{name}_neighbors.h5"}
       - {id: clusters_tsv, path: "{name}_clusters.tsv"}
-    resources: {cores: 8, mem_mb: 6144, runtime: 30}
+    # Phase 0 budget: 6 GB holds to ~0.5M cells (projection in infrastructure.typ); 5 min per timed method
+    resources: {cores: 8, mem_mb: 6144, runtime: 5}
     modules:
       # Untimed: the exact kNN reference that every method's fidelity is scored against.
-      # Run once per size (seed 0), never ranked. Generous runtime: it is not a contender.
+      # Run once per size (seed 0), never ranked. Longer runtime (20 min): it is not a contender.
       - id: reference
         name: "Reference: scanpy PCA (arpack) -> exact kNN (sklearn brute force) -> Leiden (igraph)"
         software_environment: scanpy
-        resources: {cores: 8, mem_mb: 6144, runtime: 240}
+        resources: {cores: 8, mem_mb: 6144, runtime: 20}
         repository: &scanpy_repo
           url: https://github.com/btraven00/scanpy   # branch sc-brrr-pipeline; modules/scanpy is its submodule checkout
           commit: 90875b4

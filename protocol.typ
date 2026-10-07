@@ -102,7 +102,7 @@ Tuning the Leiden resolution (fixed at 1.0 and never scored; a sweep is explorat
 
 == Phases <phases>
 
-- *Phase 0 (pilot, not confirmatory):* Hao et al. 2021 PBMC (CELLxGENE `4078abd1`, 161,764 cells, labels `celltype.l2`), at 10k, 50k and all cells. The goal is to check that every part runs. Thresholds and contracts may still change.
+- *Phase 0 (pilot, not confirmatory):* Hao et al. 2021 PBMC (CELLxGENE `4078abd1`, 161,764 cells, labels `celltype.l2`), prepared as described above (154,283 cells after QC), at 10k, 50k and 100k cells. The goal is to check that every part runs. Thresholds and contracts may still change.
 - *Phase 1 (confirmatory):* #tbd[one atlas with ≥ 2M cells and author labels], at 10k, 50k, 100k, 250k, 500k, 1M and 2M cells, plus #tbd[a robustness dataset] at 3 sizes.
 
 Every smaller size is a subset of every larger one, with the same label shares (seed 0).
@@ -112,7 +112,7 @@ Every smaller size is a subset of every larger one, with the same label shares (
 Which methods enter Phase 1 is decided by the Phase 0 results and the rules below. It is not a judgement call. The included methods and their pinned commits are listed in this protocol at the freeze. Every excluded method is listed too, with the criterion it failed.
 
 A method is included only if, on every profile it claims:
-+ *It runs.* It completes all Phase 0 replicates at 10k and 50k cells within the Phase 0 budget (@failures), with no out-of-memory, timeout or crash. Failing at the full Phase 0 size is allowed and recorded. Failing at a small size means the method would produce no Phase 1 data.
++ *It runs.* It completes all Phase 0 replicates at 10k and 50k cells within the Phase 0 budget (@failures), with no out-of-memory, timeout or crash. Failing at 100k is allowed and recorded. Failing at a small size means the method would produce no Phase 1 data.
 + *It honours the contract.* Its outputs have the declared formats, and the output cell ids match the input (`docs/infrastructure.typ`).
 + *It is not degenerate.* At 50k cells: more than one Leiden cluster, and ARI against the reference ≥ #tbd[0.5]. This floor is deliberately loose, so that low-fidelity but working methods stay in and H4 remains testable. The challenge fidelity gate is stricter and is never used for inclusion.
 + *It is reproducible as code.* Open source, pinned to a commit, with a pinned environment that solves on the profile's platform.
@@ -128,7 +128,7 @@ One warm-up run (discarded), then 5 timed runs with the same seed. For RQ5, 5 mo
 
 == Failures <failures>
 
-A (method, size) pair *fails* if it runs out of memory, times out (budget: 6 GB RAM, #tbd[4 or 8] pinned cores, #tbd[30] min per job), or exits with an error. Failures are reported as results. A method that fails at one size is not run at larger sizes.
+A (method, size) pair *fails* if it runs out of memory, times out, or exits with an error. Phase 0 budget per job: 6 GB RAM, 8 pinned cores, *5 min* for each timed method and *20 min* for the untimed reference. By projection, 6 GB holds to about 0.5M cells (`docs/infrastructure.typ`); the Phase 1 budget is #tbd[set from the Phase 0 measurements]. Failures are reported as results. A method that fails at one size is not run at larger sizes.
 
 = Variables
 
