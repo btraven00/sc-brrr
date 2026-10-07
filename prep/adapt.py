@@ -26,13 +26,13 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--output_dir", type=Path, required=True)
     p.add_argument("--name", required=True)
-    p.add_argument("--data_h5ad", type=Path, required=True)
+    p.add_argument("--cxg_h5ad", type=Path, required=True)
     p.add_argument("--labels_var", required=True)
     p.add_argument("--batch_var", required=True)
     p.add_argument("--drop_labels", default="", help="comma-separated labels to drop (e.g. Doublet)")
     args = p.parse_args()
 
-    with h5py.File(args.data_h5ad, "r") as f:
+    with h5py.File(args.cxg_h5ad, "r") as f:
         X = ad.io.read_elem(f["raw/X"])
         var = ad.io.read_elem(f["raw/var"])
         obs = ad.io.read_elem(f["obs"])
