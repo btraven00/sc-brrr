@@ -2,3 +2,7 @@
 	path = modules/scanpy
 	url = https://github.com/btraven00/scanpy.git
 	branch = sc-brrr-pipeline
+[submodule "modules/rapids-singlecell"]
+	path = modules/rapids-singlecell
+	url = https://github.com/btraven00/rapids-singlecell
+	branch = sc-brrr-fuse

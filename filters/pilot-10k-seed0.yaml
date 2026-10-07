@@ -6,9 +6,4 @@ picks:
   pipeline:
     reference: all
     scanpy:
-      - "95c838c1"  # rep 0 (warm-up)
-      - "21b12c2a"  # rep 1
-      - "aad75db6"  # rep 2
-      - "793d2f64"  # rep 3
-      - "307c35b7"  # rep 4
-      - "2c2da8dc"  # rep 5
+
