@@ -54,12 +54,13 @@ stages:
         resources: {cores: 8, mem_mb: 6144, runtime: 240}
         repository: &scanpy_repo
           url: https://github.com/btraven00/scanpy   # branch sc-brrr-pipeline; modules/scanpy is its submodule checkout
-          commit: ff12ada
+          commit: 90875b4
           entrypoint: fuse-prof
         parameters:
           - &scanpy_fixed
             steps: PCA,NNG,CLUST
             threads: 8
+            warmup_cells: 5000   # in-process warm-up >= 4096 cells (scanpy kNN switch); see infrastructure.typ
             pca_solver: arpack
             pca_n_components: 50
             pca_dtype: float64

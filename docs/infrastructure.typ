@@ -147,7 +147,13 @@ This is modelled on the conda-forge bots. All state is in git, and nothing runs 
 - An on-disk numba cache (`NUMBA_CACHE_DIR`) barely helps: 14.4 s → 13.6 s with a warm cache. Most of these functions aren't cached to disk.
 - GPU methods have the same kind of cost (CUDA context, cupy kernels), but cupy caches compiled kernels on disk across processes by default, so the two sides aren't symmetric.
 
-Options: (a) time cold runs only (what a one-shot pipeline pays, so the default now); (b) also run each chain twice in one process and report the second run (steady state, what a notebook pays); (c) allow persistent compile caches populated by the warm-up, for every method. Whatever is chosen, the fixed part is separated by the $t = c + a n^b$ fit, and it has to apply to CPU and GPU methods alike.
+*Approach (adopted for Phase 0, #tbd[confirm before the freeze]): in-process warm-up.* The runner flag `--warmup_cells N` runs the whole chain once on the first N cells of the loaded input, under `warmup:*` phases, and discards the result. Then it runs the timed chain. Compiled code is specialised by data type, not size (numba and cupy alike), so a small slice triggers almost all compilation.
+- *Two numbers from one run:* the timed phases are steady state (what a notebook pays); the `warmup:*` phases, minus their small compute, are the cold-start cost (what a one-shot pipeline pays). The challenge ranks on steady state and shows cold start next to it.
+- *N must take the same code paths:* scanpy switches from exact to pynndescent kNN at 4,096 cells, so a smaller warm-up compiles the wrong path. The plan uses N = 5,000. #tbd[check cuVS/cuGraph for similar thresholds].
+- *Same rule for every method:* it lives in the shared runner, not in each method.
+- *Safe because the steps are pure:* re-running them can't leak state into the timed run. Tested: outputs are byte-identical with and without warm-up (scanpy module).
+- *Measured* (10k, scanpy defaults, laptop): kNN phase 25.5 s cold → 3.2 s after a 5,000-cell warm-up, with the compile in `warmup:nng` (14.6 s).
+- The protocol must call the timed number "steady state", not just "timed". The fixed term $c$ of the scaling fit then mostly moves into the cold-start column.
 
 = Metric definitions <metrics>
 
