@@ -5,9 +5,9 @@ picks:
     hao2021_10k: all
   pipeline:
     scanpy:
-      - "11401996"  # rep 0 (warm-up)
-      - "0ae714e7"  # rep 1
-      - "e92fb112"  # rep 2
-      - "da5df1f3"  # rep 3
-      - "69ab6498"  # rep 4
-      - "a2f444c2"  # rep 5
+      - "2c4ecffe"  # rep 0 (warm-up)
+      - "e8ef3811"  # rep 1
+      - "c90f68ee"  # rep 2
+      - "52d74f55"  # rep 3
+      - "3ac14810"  # rep 4
+      - "ab8b2940"  # rep 5

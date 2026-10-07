@@ -47,15 +47,16 @@ stages:
     resources: {cores: 8, mem_mb: 6144, runtime: 30}
     modules:
       - id: scanpy
-        name: "Tier 0: scanpy, PCA (arpack) -> exact kNN (sklearn) -> Leiden (igraph), in-process"
+        name: "Tier 0: scanpy, PCA (arpack) -> exact kNN (sklearn) -> Leiden (igraph), fused in-process"
         software_environment: scanpy
         repository:
           url: modules/scanpy   # TODO: fork URL once sc-brrr-pipeline is pushed
-          commit: d5e8704
-          entrypoint: pipeline-prof
+          commit: af0ddef
+          entrypoint: fuse-prof
         parameters:
           # 5 same-seed replicates: nondeterminism, and the timed runs. Warm-up is replicate 0.
           - &scanpy_fixed
+            steps: PCA,NNG,CLUST
             solver: arpack
             n_components: 50
             blas_threads: 8
