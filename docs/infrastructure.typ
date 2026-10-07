@@ -136,7 +136,9 @@ This is modelled on the conda-forge bots. All state is in git, and nothing runs 
 - Methods mark their steps with obkit phases (`obkit-events.jsonl`: load, pca, knn, cluster, write).
 - GPU methods must call `cuda.synchronize()` before closing a phase. Otherwise the phase measures how long the kernels took to launch, not to run.
 - ob 0.7.0 runs an entrypoint value like `denet pca.py` as `python3 denet pca.py`, so denet has to be called from a wrapper script.
-- Nsight Systems measures H2D/D2H bytes and time, on replicate 1 only.
+- *PCIe bytes per phase:* the fused GPU runner reads NVML's cumulative PCIe byte counters (fields 197/198, TX = GPU→host, RX = host→GPU) at every phase boundary, after a device sync. Each obkit end event carries `pcie_rx_bytes` / `pcie_tx_bytes` (`src/pcie.py`, ctypes, no extra package). Validated: a 400 MB copy reads ~430 MB, so counts include ~8–10 % protocol overhead. The counters are per device, so the numbers need the exclusive GPU. Measured on 10k with the public rsc API: X uploads once (42 MB); the steps then move 3.6 / 4.6 / 21 MB host→GPU (pca / nng / clust). That is the embedding and graph round trips inside rsc calls, and the Leiden graph upload is half the size of X. Residency test: the upload scales with the density of X, the steps' traffic does not; an injected re-upload of X fails it.
+- #tbd[*Delegate PCIe counting to denet:* sample NVML fields 197/198 in its existing NVML loop (time series + totals in the trace). Then `src/pcie.py` and the reads in `timed()` go away, and every GPU module gets the numbers without code.]
+- Nsight Systems measures individual copies (count, size, API) on replicate 1 only, for finer attribution than the counters give.
 - #tbd[denet on the host vs. in the container: inside it needs NVML through CDI and gets no eBPF; on the host it has to map PIDs across namespaces].
 
 == JIT compilation and warm-up <jit>
