@@ -1,3 +1,4 @@
 [submodule "modules/scanpy"]
 	path = modules/scanpy
-	url = https://github.com/omni-scrna/scanpy
+	url = https://github.com/btraven00/scanpy.git
+	branch = sc-brrr-pipeline

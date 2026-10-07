@@ -50,7 +50,7 @@ stages:
         name: "Tier 0: scanpy, PCA (arpack) -> exact kNN (sklearn) -> Leiden (igraph), fused in-process"
         software_environment: scanpy
         repository:
-          url: modules/scanpy   # TODO: fork URL once sc-brrr-pipeline is pushed
+          url: https://github.com/btraven00/scanpy   # branch sc-brrr-pipeline; modules/scanpy is its submodule checkout
           commit: 04ec767
           entrypoint: fuse-prof
         parameters:
