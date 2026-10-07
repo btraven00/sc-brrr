@@ -20,7 +20,8 @@
 #table(
   columns: (auto, auto, 1fr, auto),
   table.header([*Tier*], [*Module id*], [*Stack*], [*Capability*]),
-  [0], [`scanpy`], [scanpy + numpy + scipy.sparse; kNN with `transformer="sklearn"` (exact, see @refknn)], [—],
+  [—], [`reference`], [scanpy, kNN with `transformer="sklearn"` (exact, see @refknn). Untimed, generous runtime, seed 0 only; the target of all relative metrics], [—],
+  [0], [`scanpy`], [scanpy defaults: kNN via pynndescent (approximate above 4,096 cells)], [—],
   [1], [`bpcells`], [BPCells (R, C++ backend: bit-packing, SIMD, mmap)], [—],
   [2a], [`rsc_naive`], [rapids-singlecell called as a straight scanpy port, with transfers left to library defaults], [`cuda`],
   [2b], [`rsc`], [rapids-singlecell: `anndata_to_GPU` once → sparse covariance-eigendecomposition PCA (no densification) → kNN → Leiden in VRAM → `anndata_to_CPU` once], [`cuda`],
@@ -160,7 +161,7 @@ Three comparison targets: *ref* (the `scanpy` output at the same size), *lab* (t
 
 == Reference kNN must be exact <refknn>
 
-For more than 4,096 cells, scanpy's `pp.neighbors` defaults to pynndescent, which is approximate. The `scanpy` method sets `transformer="sklearn"`. Otherwise the "exact" reference would itself be approximate.
+For more than 4,096 cells, scanpy's `pp.neighbors` defaults to pynndescent, which is approximate. The `reference` module therefore sets `transformer="sklearn"`; otherwise the "exact" reference would itself be approximate. The timed `scanpy` method keeps the default, because that is what users run.
 
 == Metric versioning
 

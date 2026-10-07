@@ -71,7 +71,8 @@ The steps are not split into separate Omnibenchmark stages, because that would a
 #table(
   columns: (auto, auto, 1fr),
   table.header([*Tier*], [*Method*], [*Role*]),
-  [0], [scanpy (exact kNN)], [CPU fidelity floor; reference for all relative metrics],
+  [—], [reference (scanpy, exact kNN)], [untimed and never ranked; the target for all relative fidelity metrics],
+  [0], [scanpy (defaults)], [CPU fidelity floor: scanpy as commonly run (approximate kNN via pynndescent)],
   [1], [BPCells], [competitive CPU baseline (out-of-core, SIMD)],
   [2a], [RSC, naive], [GPU, called as a straight scanpy port],
   [2b], [RSC, transfer-disciplined], [GPU, one copy to the device and one back; practical ceiling],
