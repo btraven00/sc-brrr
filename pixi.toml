@@ -1,0 +1,23 @@
+[workspace]
+authors = ["btraven"]
+channels = ["conda-forge"]
+name = "sc-brrr"
+platforms = ["linux-64", "osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+protocol = { cmd = "typst compile protocol.typ protocol.pdf", inputs = ["protocol.typ"], outputs = ["protocol.pdf"] }
+docs = { cmd = "typst compile docs/infrastructure.typ docs/infrastructure.pdf", inputs = ["docs/infrastructure.typ"], outputs = ["docs/infrastructure.pdf"] }
+
+[dependencies]
+typst = ">=0.14,<0.16"
+
+# ob drives the conda backend, so the host still needs a conda on PATH
+[feature.ob.pypi-dependencies]
+omnibenchmark = "==0.7.0"
+
+[feature.ob.dependencies]
+python = ">=3.12,<3.14"
+
+[environments]
+ob = { features = ["ob"] }

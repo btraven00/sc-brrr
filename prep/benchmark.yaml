@@ -1,0 +1,113 @@
+# sc-brrr prep: produces the published benchmark input (one h5ad per ladder rung).
+# FILT / NORM / FEAT are the omni-scrna split-stages-plan modules (plan @ dfc8ee9), unchanged:
+# same repos, commits, entrypoints and parameters. What differs from that plan:
+#  - api 0.7.0, so --name is the module id. The omni-scrna modules write <name>_*,
+#    so the output templates here use {name}_* instead of {dataset}_*.
+#  - NORM / FEAT keep only the sc-brrr choice: nr-scanpy log1pCP10k -> fe-scanpy pearson_residuals, 2000 genes.
+#  - DATA comes from FETCH (omni-data/hapiq, CELLxGENE via VCP) + an adapter in place of 1-data.
+id: sc_brrr_prep
+name: sc-brrr input preparation
+benchmarker: "btraven <ben.uzh@proton.me>"
+version: "0.1.0"
+api_version: "0.7.0"
+
+software_backend: conda
+software_environments:
+  omni-data: {conda: envs/omni-data.yml}
+  scrapper: {conda: envs/scrapper.yml}
+  py_conda: {conda: envs/py.yml}
+  scanpy: {conda: envs/scanpy.yml}
+
+stages:
+  - id: FETCH
+    outputs:
+      - {id: cxg_h5ad, path: "{name}.h5ad"}
+    modules:
+      - id: hao2021
+        name: "Hao et al. 2021 multimodal PBMC (CELLxGENE 4078abd1, VCP 6a52e2c8…)"
+        software_environment: omni-data
+        repository:
+          url: https://github.com/btraven00/omni-data
+          commit: b4d6c62
+        parameters:
+          - source: vcp
+            accession: "6a52e2c83319362a04b3a02e"
+            hash: "sha256:e33c8904af0c77333cb1c206ebd285ca620d2c13cdca6d4e79dd1b3d41880904"
+
+  - id: DATA
+    inputs: [cxg_h5ad]
+    outputs:
+      - {id: rawdata_h5ad, path: "{name}.h5ad"}
+      - {id: rawdata_clusters_truth, path: "{name}.clusters_truth.tsv"}
+      - {id: rawdata_clusters_truth_num, path: "{name}.clusters_truth_num.txt"}
+      - {id: properties_info, path: "{name}_properties.yaml"}
+    resources: {mem_mb: 16000}
+    modules:
+      - id: cxg-adapt
+        software_environment: scanpy
+        repository: {url: "..", commit: "HEAD", entrypoint: adapt}
+        parameters:
+          - labels_var: celltype.l2
+            batch_var: donor_id
+            drop_labels: Doublet
+
+  - id: FILT
+    inputs: [rawdata_h5ad, properties_info]
+    outputs:
+      - {id: filtered_cellids, path: "{name}_cellids.txt.gz"}
+      - {id: filtered_featureids, path: "{name}_featureids.txt.gz"}
+      - {id: size_factor_tsv, path: "{name}_size_factors.tsv"}
+    resources: {mem_mb: 16000}
+    modules:
+      - id: fi-scrapper
+        name: "scrapper-style filtering"
+        software_environment: scrapper
+        repository:
+          url: https://github.com/omni-scrna/scrapper
+          commit: 64e91bb
+          entrypoint: filter
+
+  - id: NORM
+    inputs: [rawdata_h5ad, filtered_cellids, filtered_featureids]
+    outputs:
+      - {id: normalized_h5, path: "{name}_normalized.h5"}
+    resources: {mem_mb: 16000}
+    modules:
+      - id: nr-scanpy
+        name: "Python-based scRNA-seq normalization methods"
+        software_environment: py_conda
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: b5c6855
+          entrypoint: normalize
+        parameters:
+          - flavor: log1pCP10k
+
+  - id: FEAT
+    inputs: [rawdata_h5ad, normalized_h5, filtered_cellids, filtered_featureids, properties_info]
+    outputs:
+      - {id: normalized_selected_h5, path: "{name}_normalized_selected.h5"}
+    resources: {mem_mb: 16000}
+    modules:
+      - id: fe-scanpy
+        name: "scanpy-based gene selection"
+        software_environment: scanpy
+        repository:
+          url: https://github.com/omni-scrna/scanpy
+          commit: 2a56c14
+          entrypoint: feat-select
+        parameters:
+          - flavor: pearson_residuals
+            number_selected: 2000
+
+  - id: EXPORT
+    inputs: [normalized_selected_h5, rawdata_clusters_truth]
+    outputs:
+      - {id: data_h5ad, path: "{name}.h5ad"}
+    modules:
+      - id: ladder
+        software_environment: scanpy
+        repository: {url: "..", commit: "HEAD", entrypoint: export}
+        parameters:
+          - n_cells: [10000, 50000, 0]
+            random_seed: 0

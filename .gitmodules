@@ -1,0 +1,3 @@
+[submodule "modules/scanpy"]
+	path = modules/scanpy
+	url = https://github.com/omni-scrna/scanpy

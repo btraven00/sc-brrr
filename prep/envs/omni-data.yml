@@ -1,0 +1,10 @@
+name: omni-data
+channels:
+- https://prefix.dev/almost-conductor
+- conda-forge
+- nodefaults
+dependencies:
+# sc-brrr: bumped from the split-stages-plan pin (0.0.0.dev08823ee) to a
+# released hapiq that resolves VCP accessions to the CELLxGENE asset URL.
+- hapiq ==0.1.1
+- bash *
