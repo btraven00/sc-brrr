@@ -51,7 +51,7 @@ stages:
         software_environment: scanpy
         repository:
           url: https://github.com/btraven00/scanpy   # branch sc-brrr-pipeline; modules/scanpy is its submodule checkout
-          commit: 04ec767
+          commit: 8a4f773
           entrypoint: fuse-prof
         parameters:
           # 5 same-seed replicates: nondeterminism, and the timed runs. Warm-up is replicate 0.
@@ -59,7 +59,7 @@ stages:
             steps: PCA,NNG,CLUST
             solver: arpack
             n_components: 50
-            blas_threads: 8
+            threads: 8
             n_neighbors: 15
             knn_transformer: sklearn
             resolution: 1.0
