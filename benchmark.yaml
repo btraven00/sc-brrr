@@ -51,7 +51,7 @@ stages:
         software_environment: scanpy
         repository:
           url: modules/scanpy   # TODO: fork URL once sc-brrr-pipeline is pushed
-          commit: af0ddef
+          commit: 3daa373
           entrypoint: fuse-prof
         parameters:
           # 5 same-seed replicates: nondeterminism, and the timed runs. Warm-up is replicate 0.
