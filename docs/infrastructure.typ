@@ -139,6 +139,16 @@ This is modelled on the conda-forge bots. All state is in git, and nothing runs 
 - Nsight Systems measures H2D/D2H bytes and time, on replicate 1 only.
 - #tbd[denet on the host vs. in the container: inside it needs NVML through CDI and gets no eBPF; on the host it has to map PIDs across namespaces].
 
+== JIT compilation and warm-up <jit>
+
+#tbd[decide how one-off compile costs enter the timings]. What is known (10k cells, this laptop, Phase 0):
+- Each replicate is its own ob job, so a fresh process. A warm-up replicate warms the page cache, not the JIT. numba-compiled code (scanpy connectivities, pynndescent) is rebuilt in every process.
+- The compile dominates small sizes. Exact kNN: about 3.4 s phase, of which about 0.09 s is the search. pynndescent: about 12.5 s phase, almost all compile.
+- An on-disk numba cache (`NUMBA_CACHE_DIR`) barely helps: 14.4 s → 13.6 s with a warm cache. Most of these functions aren't cached to disk.
+- GPU methods have the same kind of cost (CUDA context, cupy kernels), but cupy caches compiled kernels on disk across processes by default, so the two sides aren't symmetric.
+
+Options: (a) time cold runs only (what a one-shot pipeline pays, so the default now); (b) also run each chain twice in one process and report the second run (steady state, what a notebook pays); (c) allow persistent compile caches populated by the warm-up, for every method. Whatever is chosen, the fixed part is separated by the $t = c + a n^b$ fit, and it has to apply to CPU and GPU methods alike.
+
 = Metric definitions <metrics>
 
 Three comparison targets: *ref* (the `scanpy` output at the same size), *lab* (the labels), and *self* (exact kNN computed by the metrics module on the method's own PCs). *P* = primary.
