@@ -105,7 +105,7 @@ stages:
       - id: n_clusters
         name: "Cluster count per run (no reference needed)"
         software_environment: scanpy
-        repository: {url: https://github.com/btraven00/sc-brrr, commit: TODO, entrypoint: n-clusters}  # TODO: pin after push
+        repository: {url: https://github.com/btraven00/sc-brrr, commit: aa7ea5a, entrypoint: n-clusters}
 
   # Next increment, once its module exists:
   # - id: report           # global gather -> scoreboard.md (Pages)
