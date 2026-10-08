@@ -126,6 +126,17 @@ The scope limits the whole `ob run`. It acts as a per-job limit only when `--cor
 
 `runner.py` runs a plan slice (`--filter`) under rootless podman with the base image (below). Host settings that the plan can't express live in `limits.yaml`: image, defaults for rules without limits, cpuset, conda cache, capabilities. On `x86-nvidia` the whole runner sits under Slurm: `sbatch` → `runner.py` → `podman run`. #tbd[verify rootless podman inside a Slurm cgroup (delegation)].
 
+*Podman ≥ 5 is required.* Podman 4.9 (the Ubuntu 24.04 package) can't parse the CDI 0.7.0 specs that current `nvidia-ctk` writes ("unknown field additionalGids"), so `--device nvidia.com/gpu=all` fails. It also ignores `cdi_spec_dirs` and reads only `/etc/cdi` and `/var/run/cdi`. The recommended install is nix: it runs in user space, needs no sudo and doesn't touch the distro package. Rootless mode still needs the distro's `newuidmap` and `/etc/containers/policy.json`.
+
+```sh
+nix profile install nixpkgs#podman     # 5.8.8 at time of writing; ~/.nix-profile/bin must precede /usr/bin
+podman system migrate
+nvidia-ctk cdi generate | sudo tee /etc/cdi/nvidia.yaml   # regenerate after driver updates
+podman run --rm --device nvidia.com/gpu=all <image> nvidia-smi -L
+```
+
+#tbd[podman version on the L4 host].
+
 ```sh
 pixi run -e ob python runner.py benchmark.yaml --filter filters/scanpy-10k.yaml [--id ID]
 ```
@@ -137,7 +148,7 @@ pixi run -e ob python runner.py benchmark.yaml --filter filters/scanpy-10k.yaml 
 
 Mounts: the checkout read-only at `/bench`, with `runs/` and `prep/out/` hidden behind an empty read-only directory (other runs' outputs). Not `--tmpfs`: together with `--memory`, crun fails to start the container ("read from the init process"). Only `out/` is writable.
 
-*GPU and other capabilities.* `limits.yaml` maps each host capability to podman arguments (`cuda: [--device, nvidia.com/gpu=all]` on `x86-nvidia`, matching the capability column of the methods table). Setup passes them to ob as `--with-capability`, and a job gets the arguments only if its module lists the capability in `requires_capabilities`. CPU jobs never hold the GPU. Another host type is another mapping. #tbd[untested: no GPU module in the plan yet].
+*GPU and other capabilities.* `limits.yaml` maps each host capability to podman arguments (`cuda: [--device, nvidia.com/gpu=all]` on `x86-nvidia`, matching the capability column of the methods table). Setup passes them to ob as `--with-capability`, and a job gets the arguments only if its module lists the capability in `requires_capabilities`. CPU jobs never hold the GPU. Another host type is another mapping. GPU passthrough verified on the laptop (RTX 2000 Ada, podman 5.8.8). #tbd[rsc timings; L4 host].
 
 *Conda cache.* Envs are built once into `runs/.conda` (`conda_cache` in `limits.yaml`), mounted at `/conda`: writable during setup, read-only in jobs. Snakemake keys envs by a hash of the env file, so runs share them. `CONDA_PKGS_DIRS` points there too. A second run's setup drops from minutes to ~10 s. #tbd[one cache per entry once third-party setups run here: the setup step can write to every env in the shared cache].
 
