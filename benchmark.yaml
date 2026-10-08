@@ -102,10 +102,10 @@ stages:
         requires_capabilities: [cuda]
         repository:
           url: https://github.com/btraven00/rapids-singlecell   # branch sc-brrr-fuse; modules/rapids-singlecell is its submodule checkout
-          commit: a4dde9e
+          commit: c3e1ebe
           entrypoint: fuse-prof
         parameters:
-          # Same design as scanpy: 6 same-seed replicates (0 = warm-up) + 5 paired seeds.
+          # Same design as scanpy: 6 same-seed replicates + 5 paired seeds, in-process after one warm-up.
           - &rsc_timed
             steps: PCA,NNG,CLUST
             threads: 8
@@ -118,12 +118,9 @@ stages:
             nng_random_seed: 0
             clust_resolution: 1.0
             clust_random_seed: 0
-            replicate: [0, 1, 2, 3, 4, 5]
-          - {<<: *rsc_timed, pca_random_seed: 1, nng_random_seed: 1, clust_random_seed: 1, replicate: 1}
-          - {<<: *rsc_timed, pca_random_seed: 2, nng_random_seed: 2, clust_random_seed: 2, replicate: 1}
-          - {<<: *rsc_timed, pca_random_seed: 3, nng_random_seed: 3, clust_random_seed: 3, replicate: 1}
-          - {<<: *rsc_timed, pca_random_seed: 4, nng_random_seed: 4, clust_random_seed: 4, replicate: 1}
-          - {<<: *rsc_timed, pca_random_seed: 5, nng_random_seed: 5, clust_random_seed: 5, replicate: 1}
+            replicates: 6
+            seed_stride: 0
+          - {<<: *rsc_timed, pca_random_seed: 1, nng_random_seed: 1, clust_random_seed: 1, replicates: 5, seed_stride: 1}
 
   # Untimed. One node per size, every pipeline run of that size as a member.
   # The module only knows --name, not the group, so the size lives in the path.
