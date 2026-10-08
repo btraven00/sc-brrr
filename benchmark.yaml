@@ -10,6 +10,7 @@ software_backend: conda
 software_environments:
   omni-data: {conda: prep/envs/omni-data.yml}
   scanpy: {conda: modules/scanpy/envs/scanpy.linux-64.lock.yml}  # x86-nvidia profile; regenerate with pixi run lock-env
+  rapids: {conda: modules/rapids-singlecell/envs/rapids-singlecell.linux-64.lock.yml}  # CUDA 13 wheels; same regeneration
 
 stages:
   # One module per dataset size. TODO(zenodo): switch to source: zenodo + accession + hash once published.
@@ -93,6 +94,37 @@ stages:
           - {<<: *scanpy_timed, pca_random_seed: 3, nng_random_seed: 3, clust_random_seed: 3, replicate: 1}
           - {<<: *scanpy_timed, pca_random_seed: 4, nng_random_seed: 4, clust_random_seed: 4, replicate: 1}
           - {<<: *scanpy_timed, pca_random_seed: 5, nng_random_seed: 5, clust_random_seed: 5, replicate: 1}
+
+      # Tier 2b, timed: rapids-singlecell with X uploaded once and everything resident in VRAM.
+      # Exact kNN (cuVS brute force), so its graph is comparable to the reference's.
+      - id: rsc
+        name: "Tier 2b: rapids-singlecell, PCA -> kNN (cuVS brute) -> Leiden, resident on the GPU, fused in-process"
+        software_environment: rapids
+        requires_capabilities: [cuda]
+        repository:
+          url: https://github.com/btraven00/rapids-singlecell   # branch sc-brrr-fuse; modules/rapids-singlecell is its submodule checkout
+          commit: a4dde9e
+          entrypoint: fuse-prof
+        parameters:
+          # Same design as scanpy: 6 same-seed replicates (0 = warm-up) + 5 paired seeds.
+          - &rsc_timed
+            steps: PCA,NNG,CLUST
+            threads: 8
+            warmup_cells: 5000
+            pca_n_components: 50
+            pca_dtype: float64
+            pca_random_seed: 0
+            nng_n_neighbors: 15
+            nng_knn_algorithm: brute
+            nng_random_seed: 0
+            clust_resolution: 1.0
+            clust_random_seed: 0
+            replicate: [0, 1, 2, 3, 4, 5]
+          - {<<: *rsc_timed, pca_random_seed: 1, nng_random_seed: 1, clust_random_seed: 1, replicate: 1}
+          - {<<: *rsc_timed, pca_random_seed: 2, nng_random_seed: 2, clust_random_seed: 2, replicate: 1}
+          - {<<: *rsc_timed, pca_random_seed: 3, nng_random_seed: 3, clust_random_seed: 3, replicate: 1}
+          - {<<: *rsc_timed, pca_random_seed: 4, nng_random_seed: 4, clust_random_seed: 4, replicate: 1}
+          - {<<: *rsc_timed, pca_random_seed: 5, nng_random_seed: 5, clust_random_seed: 5, replicate: 1}
 
   # Untimed. One node per size, every pipeline run of that size as a member.
   # The module only knows --name, not the group, so the size lives in the path.

@@ -1,0 +1,8 @@
+# obfilter: 10k; every rsc combo (6 same-seed replicates, 5 seeds) + metrics. Needs --with-capability cuda.
+picks:
+  data:
+    hao2021_10k: all
+  pipeline:
+    rsc: all
+  metrics:
+    n_clusters: all

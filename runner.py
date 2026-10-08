@@ -137,7 +137,7 @@ def main():
     base = ["podman", "run", "--rm", "-e", "XDG_CACHE_HOME=/bench/out/.cache",
             "-v", f"{REPO}:/bench:ro",
             "-v", f"{run / 'benchmark.yaml'}:/bench/{plan_src.name}:ro",
-            "-v", f"{run / 'filter.yaml'}:/bench/filter.yaml:ro",
+            "-v", f"{run / 'filter.yaml'}:/filter.yaml:ro",  # outside /bench: no mount point left in the checkout
             "-v", f"{out}:/bench/out"]
     # other runs' outputs live in the checkout too; hide them behind an empty dir
     # (not --tmpfs: with --memory set, crun fails to start the container)
@@ -150,12 +150,12 @@ def main():
     # ponytail: one cache for every entry; per-entry caches once third-party setups run here
     conda = (REPO / lim.get("conda_cache", "runs/.conda")).resolve()
     conda.mkdir(parents=True, exist_ok=True)
-    base += ["-e", "CONDA_PKGS_DIRS=/conda/pkgs"]
+    base += ["-e", "CONDA_PKGS_DIRS=/conda/pkgs", "-e", "PIP_NO_CACHE_DIR=1"]  # no second copy of big wheels
     conda_rw, conda_ro = ["-v", f"{conda}:/conda"], ["-v", f"{conda}:/conda:ro"]
     host_caps = lim.get("capabilities") or {}
     needs = {(st["id"], m["id"]): m.get("requires_capabilities", [])
              for st in plan["stages"] for m in st.get("modules", [])}
-    ob = ["ob", "run", plan_src.name, "--filter", "filter.yaml", "--dirty"]
+    ob = ["ob", "run", plan_src.name, "--filter", "/filter.yaml", "--dirty"]
     for c in host_caps:
         ob += ["--with-capability", c]
     log = open(run / "runner.log", "w")
