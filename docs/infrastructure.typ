@@ -75,7 +75,7 @@ Every size in every format, with its sha256 and the prep run metadata, goes to Z
 
 == Budget and projections (Phase 0)
 
-Phase 0 runs 10k, 50k and 100k cells with 6 GB RAM and 8 pinned cores per job; 5 min per timed method, 20 min for the untimed reference. Projections from 10k and 50k (laptop, single runs, float64 PCA, rapids freeing the host copy). Memory is linear in cells; time is a per-step power law, with GPU exponents below 1 replaced by the expected large-n scaling (brute kNN quadratic):
+Phase 0 runs 10k, 50k and 100k cells with 6 GB RAM and 8 pinned cores per job; 5 min per candidate entry; 20 min for the baselines and the untimed reference. Measured at 50k (2026-10-08): scanpy jobs 77–91 s (warm-up + 6 or 5 replicates of ~11 s), rsc 33–35 s. Projections from 10k and 50k (laptop, single runs, float64 PCA, rapids freeing the host copy). Memory is linear in cells; time is a per-step power law, with GPU exponents below 1 replaced by the expected large-n scaling (brute kNN quadratic):
 
 #table(
   columns: (auto, auto, auto, auto, auto),

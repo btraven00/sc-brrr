@@ -1,0 +1,11 @@
+# obfilter: 50k; the exact reference + both baselines (every combo) + metrics. Needs --with-capability cuda.
+picks:
+  data:
+    hao2021_50k: all
+  pipeline:
+    reference: all
+    scanpy: all
+    rsc: all
+  metrics:
+    n_clusters: all
+    contract: all

@@ -123,7 +123,7 @@ One warm-up run (discarded), then 5 timed runs with the same seed. For RQ5, 5 mo
 
 == Failures <failures>
 
-A (method, size) pair *fails* if it runs out of memory, times out, or exits with an error. Phase 0 budget per job: 6 GB RAM, 8 pinned cores, *5 min* for each timed method and *20 min* for the untimed reference. By projection, 6 GB holds to about 0.5M cells (`docs/infrastructure.typ`); the Phase 1 budget is #tbd[set from the Phase 0 measurements]. Failures are reported as results. A method that fails at one size is not run at larger sizes.
+A (method, size) pair *fails* if it runs out of memory, times out, or exits with an error. Phase 0 budget per job: 6 GB RAM, 8 pinned cores, *5 min* for each candidate entry, and *20 min* for the baselines and the untimed reference. By projection, 6 GB holds to about 0.5M cells (`docs/infrastructure.typ`); the Phase 1 budget is #tbd[set from the Phase 0 measurements]. Failures are reported as results. A method that fails at one size is not run at larger sizes.
 
 = Variables
 

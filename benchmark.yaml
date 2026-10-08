@@ -45,7 +45,8 @@ stages:
       - {id: embedding_tsv, path: "{name}_embedding.tsv"}
       - {id: neighbors_h5, path: "{name}_neighbors.h5"}
       - {id: clusters_tsv, path: "{name}_clusters.tsv"}
-    # Phase 0 budget: 6 GB holds to ~0.5M cells (projection in infrastructure.typ); 5 min per timed method
+    # Phase 0 budget: 6 GB holds to ~0.5M cells (projection in infrastructure.typ). 5 min per job is the
+    # candidates' budget (challenge entries); the reference and the baselines get 20 min (resources below).
     resources: {cores: 8, mem_mb: 6144, runtime: 5}
     modules:
       # Untimed: the exact kNN reference that every method's fidelity is scored against.
@@ -69,6 +70,7 @@ stages:
       - id: scanpy
         name: "CPU baseline: omni-scrna/scanpy (+ shared-io), PCA (arpack) -> kNN (pynndescent) -> Leiden (igraph), fused"
         software_environment: scanpy
+        resources: &baseline {cores: 8, mem_mb: 6144, runtime: 20}   # baselines: 20 min, not the candidates' 5
         repository: &fuse {url: https://github.com/btraven00/sc-brrr, commit: 76bf3c5, entrypoint: fuse}
         parameters:
           # 6 same-seed replicates: nondeterminism, and the timed runs.
@@ -95,6 +97,7 @@ stages:
         name: "GPU baseline: omni-scrna/rapids-singlecell, PCA (covariance eigh) -> kNN (cuVS brute) -> Leiden, fused"
         software_environment: rapids
         requires_capabilities: [cuda]
+        resources: *baseline   # a candidate-like method, but fixed as the GPU baseline
         repository: *fuse
         parameters:
           - &rsc_timed
