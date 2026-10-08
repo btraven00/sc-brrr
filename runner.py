@@ -75,6 +75,45 @@ def rules(snakefile):
     return out
 
 
+def watch(cmd, name, log):
+    """Run a job container; poll its cgroup from the host. memory.peak is the kernel's running
+    max, so polling only risks missing growth in the last interval before exit."""
+    log.write("$ " + " ".join(map(str, cmd)) + "\n")
+    log.flush()
+    proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
+    cg, peak, cpu_us = None, 0, 0
+    while proc.poll() is None:
+        try:
+            if cg is None and (path := sh("podman", "inspect", "-f", "{{.State.CgroupPath}}", name).stdout.strip()):
+                cg = Path("/sys/fs/cgroup" + path)
+            if cg:
+                peak = max(peak, int((cg / "memory.peak").read_text()))
+                cpu_us = int((cg / "cpu.stat").read_text().split()[1])  # usage_usec
+        except (OSError, ValueError):
+            pass  # cgroup not there yet, or already gone
+        try:
+            proc.wait(timeout=0.25)  # returns at exit, not at the next tick
+        except subprocess.TimeoutExpired:
+            pass
+    return proc.returncode, {"mem_peak_mb": round(peak / 2**20, 1), "cpu_s": round(cpu_us / 1e6, 1)}
+
+
+def denet_summary(path):
+    """Peaks of the traced process tree, from denet's aggregated samples."""
+    rss, threads, cpu_s, n, prev = 0, 0, 0.0, 0, None
+    for line in open(path):
+        e = json.loads(line)
+        if e.get("kind") != "tree":
+            continue
+        a = e["aggregated"]
+        n += 1
+        rss, threads = max(rss, a["mem_rss_kb"]), max(threads, a["thread_count"])
+        if prev is not None:
+            cpu_s += a["cpu_usage"] / 100 * (a["ts_ms"] - prev) / 1000
+        prev = a["ts_ms"]
+    return {"rss_peak_mb": round(rss / 1024, 1), "cpu_s": round(cpu_s, 1), "threads_peak": threads, "samples": n}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("plan")
@@ -107,6 +146,12 @@ def main():
         base += ["-v", f"{run / 'empty'}:/bench/{d}:ro"]
     for host, ctr in mounts:
         base += ["-v", f"{host}:{ctr}:ro"]
+    # conda envs shared across runs, keyed by env-file hash; writable only during setup.
+    # ponytail: one cache for every entry; per-entry caches once third-party setups run here
+    conda = (REPO / lim.get("conda_cache", "runs/.conda")).resolve()
+    conda.mkdir(parents=True, exist_ok=True)
+    base += ["-e", "CONDA_PKGS_DIRS=/conda/pkgs"]
+    conda_rw, conda_ro = ["-v", f"{conda}:/conda"], ["-v", f"{conda}:/conda:ro"]
     host_caps = lim.get("capabilities") or {}
     needs = {(st["id"], m["id"]): m.get("requires_capabilities", [])
              for st in plan["stages"] for m in st.get("modules", [])}
@@ -138,7 +183,8 @@ def main():
 
     print("setup (network on) ...", flush=True)
     manifest["setup_exit"] = step(base + [lim["image"]] + ob + ["--dry"]) or \
-        step(base + [lim["image"]] + ob + ["--cores", "8", "--", "--conda-create-envs-only"])
+        step(base + conda_rw + [lim["image"]] + ob + ["--cores", "8", "--", "--conda-create-envs-only",
+                                                       "--conda-prefix", "/conda"])
     if manifest["setup_exit"]:
         sys.exit(f"setup failed, see {run / 'runner.log'}")
 
@@ -147,7 +193,7 @@ def main():
         mem = r.get("mem_mb", lim["default_mem_mb"])
         runtime = r.get("runtime", lim["default_runtime"])
         name = f"scbrrr-{a.id}-{rule}"[:120]
-        cmd = [x for x in base if x != "--rm"] + [
+        cmd = [x for x in base if x != "--rm"] + conda_ro + [
             "--name", name, "--network", "none", "-w", "/bench/out",
             "--cpus", str(cores), "--memory", f"{mem}m", "--memory-swap", f"{mem}m",
             "--timeout", str(runtime * 60)]
@@ -158,22 +204,28 @@ def main():
         # a device only for modules that ask for it, so CPU jobs never hold the GPU
         for c in needs.get(mod, []):
             cmd += host_caps[c]
-        cmd += [lim["image"], "snakemake", "--snakefile", "Snakefile", "--use-conda",
+        cmd += [lim["image"], "snakemake", "--snakefile", "Snakefile", "--use-conda", "--conda-prefix", "/conda",
                 "--cores", str(cores), "--allowed-rules", rule, "--", rule]
         print(f"{rule} ({cores} cores, {mem} MB, {runtime} min) ...", end=" ", flush=True)
         t0 = time.time()
-        rc = step(cmd)
+        rc, cgroup = watch(cmd, name, log)
         wall = round(time.time() - t0, 1)
         oom = sh("podman", "inspect", "-f", "{{.State.OOMKilled}}", name).stdout.strip() == "true"
         sh("podman", "rm", name)
         timed_out = rc != 0 and wall >= runtime * 60
         print("ok" if rc == 0 else f"FAILED (exit {rc}{', OOM' if oom else ''}{', timeout' if timed_out else ''})")
         manifest["jobs"].append({"rule": rule, "cores": cores, "mem_mb": mem, "runtime_min": runtime,
-                                 "capabilities": needs.get(mod, []), "exit": rc, "oom_killed": oom, "timed_out": timed_out, "wall_s": wall})
+                                 "capabilities": needs.get(mod, []), "exit": rc, "oom_killed": oom, "timed_out": timed_out, "wall_s": wall,
+                                 "cgroup": cgroup})
 
     files = sorted(p for p in out.rglob("*") if p.is_file() and not p.is_symlink()
                    and p.relative_to(out).parts[0] not in INTERNAL | {".logs"})
     manifest["outputs"] = {str(p.relative_to(out)): sha256(p) for p in files}
+    # cross-check: denet's view (inside, module env) next to the cgroup's (host side)
+    traces = {p.parent.name.lstrip("."): denet_summary(p) for p in files if p.name == "denet.jsonl"}
+    for j in manifest["jobs"]:
+        if d := traces.get(j["rule"].rsplit("_", 1)[-1]):
+            j["denet"] = d
     for p in files:
         if p.parts[-1].endswith(("_metrics.tsv", ".jsonl", "parameters.json", "performance.txt", "lineage.json")):
             dst = res / p.relative_to(out)

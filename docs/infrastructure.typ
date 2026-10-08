@@ -96,7 +96,7 @@ Phase 0 runs 10k, 50k and 100k cells with 6 GB RAM and 8 pinned cores per job; 5
 
 == Timed runs on `x86-nvidia`: Slurm
 
-The L4 host is shared, so timed runs go through Slurm. There is *one allocation per scoring run*: `sbatch --cpus-per-task=8 --mem=<cap> --gres=gpu:1 --time=<limit> --exclusive` starts the podman run (@isolation), and `ob` runs inside it on its local executor. Snakemake's Slurm executor is not used, so there is no question of whether `ob` forwards executor flags.
+The L4 host is shared, so timed runs go through Slurm. There is *one allocation per scoring run*: `sbatch --cpus-per-task=8 --mem=<cap> --gres=gpu:1 --time=<limit> --exclusive` starts `runner.py` (@isolation), which runs each job in its own podman container, one at a time. Snakemake's Slurm executor is not used, so there is no question of whether `ob` forwards executor flags.
 
 - Timed jobs use `--exclusive` on #tbd[a dedicated partition or a reserved window]: owning the GPU is not enough, because caches, memory bandwidth, PCIe and disk are still shared.
 - Every job records host load at its start and end (load average, `nvidia-smi` processes, GPU utilisation). Runs that overlap other activity are flagged and re-run.
@@ -122,15 +122,30 @@ systemd-run --user --scope -p MemoryMax=6G -p MemorySwapMax=0 \
 
 The scope limits the whole `ob run`. It acts as a per-job limit only when `--cores` equals each stage's `resources.cores`, so that one job runs at a time. These timings are never scored.
 
-== Isolation: podman around the whole run <isolation>
+== Isolation: podman, one container per job <isolation>
 
-A scoring run is one `podman run` of a base image that contains ob, denet, conda and snakemake. `ob run` runs inside it on the local executor. On `x86-nvidia` this sits under Slurm: `sbatch` → `podman run` → `ob run`. #tbd[verify rootless podman inside a Slurm cgroup (delegation)].
+`runner.py` runs a plan slice (`--filter`) under rootless podman with the base image (below). Host settings that the plan can't express live in `limits.yaml`: image, defaults for rules without limits, cpuset, conda cache, capabilities. On `x86-nvidia` the whole runner sits under Slurm: `sbatch` → `runner.py` → `podman run`. #tbd[verify rootless podman inside a Slurm cgroup (delegation)].
 
-The run happens in two steps, because the timed step has no network:
-+ *Setup* (network on, untimed): `ob run … --dry` fetches and pins the modules, then `ob run … -- --conda-create-envs-only` builds the environments into a cached volume.
-+ *Run* (`--network none`, `--cpus 8 --memory <cap> --memory-swap <cap>`, cpuset/NUMA as above, a timeout, the GPU through CDI): datasets and envs mounted read-only, only `out/` writable, `ob run … --cores 8 -k`. Jobs run one at a time, so the container cap is also the per-job cap.
+```sh
+pixi run -e ob python runner.py benchmark.yaml --filter filters/scanpy-10k.yaml [--id ID]
+```
 
-Both steps set `XDG_CACHE_HOME=<out>/.cache`, so ob's git cache (`$XDG_CACHE_HOME/omnibenchmark/git`) lives in the `out/` volume and survives from setup to run. ob 0.7.0 deletes that cache when a fetch fails, which is every fetch offline; the run step needs ob with omnibenchmark/omnibenchmark\#395, which falls back to the cached copy. Datasets are mounted at `/data` and the plan names them `file:///data/…`. Mount real files: the symlinks in `data/prep/` point to absolute host paths and break inside the container. Verified end to end on the 10k slice (data → reference + scanpy → `n_clusters`), 2026-10-08.
++ *Render.* Data `file://` URIs become `file:///data/<name>`, and the real file (symlinks resolved) is mounted there. Modules from this repo point at the read-only checkout, because the repo is private.
++ *Setup* (network on, untimed): `ob run … --dry` clones, pins and writes `out/Snakefile`; `ob run … -- --conda-create-envs-only --conda-prefix /conda` builds the envs.
++ *Run* (`--network none`): every rule in the Snakefile runs in *its own container*, with that rule's `resources:` as the cap: `--cpus <cores> --memory <mem_mb> --memory-swap <mem_mb> --timeout <runtime>`, cpuset if set, `snakemake --allowed-rules <rule>`. Jobs run one at a time, in the Snakefile's order, which is topological. So the limits apply to a single run, not to the set of replicates, and a slow run cannot spend another's time.
++ *Results* (host side): `runs/<id>/results/manifest.json` with versions (repo commit, image id, ob version), the limits, sha256 of the plan, data and every output, and per job: exit code, OOM kill, timeout, wall time, cgroup peaks and the denet summary. Also copied: the metrics tables and each run's `parameters.json`, `obkit-events.jsonl`, `denet.jsonl`. Nothing in `results/` is written by code inside a container.
+
+Mounts: the checkout read-only at `/bench`, with `runs/` and `prep/out/` hidden behind an empty read-only directory (other runs' outputs). Not `--tmpfs`: together with `--memory`, crun fails to start the container ("read from the init process"). Only `out/` is writable.
+
+*GPU and other capabilities.* `limits.yaml` maps each host capability to podman arguments (`gpu: [--device, nvidia.com/gpu=all]` on `x86-nvidia`). Setup passes them to ob as `--with-capability`, and a job gets the arguments only if its module lists the capability in `requires_capabilities`. CPU jobs never hold the GPU. Another host type is another mapping. #tbd[untested: no GPU module in the plan yet].
+
+*Conda cache.* Envs are built once into `runs/.conda` (`conda_cache` in `limits.yaml`), mounted at `/conda`: writable during setup, read-only in jobs. Snakemake keys envs by a hash of the env file, so runs share them. `CONDA_PKGS_DIRS` points there too. A second run's setup drops from minutes to ~10 s. #tbd[one cache per entry once third-party setups run here: the setup step can write to every env in the shared cache].
+
+Both steps set `XDG_CACHE_HOME=<out>/.cache`, so ob's git cache lives in the `out/` volume and survives from setup to run. ob 0.7.0 deletes that cache when a fetch fails, which is every fetch offline; the run step needs ob with omnibenchmark/omnibenchmark\#395, which falls back to the cached copy. (The job containers call snakemake directly and don't need it; setup does.)
+
+Measured on the laptop, 10k, scanpy, 8 cores, 2026-10-08: the reference + 11 scanpy runs + metrics, 14/14 jobs. A scanpy run is ~24 s of container wall time: ~3 s timed (PCA + kNN + Leiden), ~16 s warm-up (mostly compiling pynndescent's code), ~5 s container, snakemake, conda and load. All 11 runs take 4.5 min, so the 5 min budget per method holds the full set of replicates and seeds at 10k, barely.
+
+The baseline and the candidate run in *separate* runner invocations, each restricted to its own slice with `--filter`. `apple-silicon` can't use this (podman runs in a VM there and can't reach Metal), so it keeps its native setup.
 
 === Base image
 
@@ -176,6 +191,7 @@ This is modelled on the conda-forge bots. All state is in git, and nothing runs 
 - #tbd[*Delegate PCIe counting to denet:* sample NVML fields 197/198 in its existing NVML loop (time series + totals in the trace). Then `src/pcie.py` and the reads in `timed()` go away, and every GPU module gets the numbers without code.]
 - Nsight Systems measures individual copies (count, size, API) on replicate 1 only, for finer attribution than the counters give.
 - #tbd[denet on the host vs. in the container: inside it needs NVML through CDI and gets no eBPF; on the host it has to map PIDs across namespaces].
+- *Cross-check against the container.* The runner reads the job container's cgroup from the host while the job runs: `memory.peak` (a running maximum kept by the kernel) and `cpu.stat`. It writes them per job into `manifest.json` next to a summary of the job's `denet.jsonl` (peak RSS, CPU time, peak threads, sample count). The cgroup numbers can't be faked from inside the container; denet's can, because it runs in the module's env. A large gap between the two flags the run: work outside the traced process tree, or a doctored trace. Measured at 10k (scanpy, 11 runs, 2026-10-08): denet's peak RSS is ~9 % *above* the cgroup's `memory.peak` (800 vs 733 MB), because denet sums RSS over the processes in the tree and counts shared pages more than once; the cgroup's CPU time is ~2.5 s above denet's (27 vs 24.5 s), which is snakemake, conda activation and the container itself. #tbd[tolerance for the gap].
 
 == JIT compilation and warm-up <jit>
 
