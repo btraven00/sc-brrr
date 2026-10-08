@@ -1,0 +1,57 @@
+# Builds the scoring base image (Containerfile) and pushes it to GHCR.
+# Push to main: ob release -> ghcr.io/<owner>/sc-brrr-base:<ob version> and :sha-<commit>.
+# Manual run with an ob branch or sha -> :ob-<ref>, to test ob changes before they merge.
+name: image
+
+on:
+  push:
+    branches: [main]
+    paths: [Containerfile, .github/workflows/image.yml]
+  workflow_dispatch:
+    inputs:
+      ob_ref:
+        description: "ob branch or commit (empty = the release pinned in Containerfile)"
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tags and build args
+        id: meta
+        env:
+          REF: ${{ inputs.ob_ref }}
+        run: |
+          image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sc-brrr-base
+          if [ -n "$REF" ]; then
+            echo "build_args=OB=git+https://github.com/omnibenchmark/omnibenchmark@$REF" >> "$GITHUB_OUTPUT"
+            echo "tags=$image:ob-$(echo "$REF" | tr -c 'a-zA-Z0-9._\n' '-')" >> "$GITHUB_OUTPUT"
+          else
+            ver=$(sed -n 's/^ARG OB=omnibenchmark==//p' Containerfile)
+            echo "build_args=" >> "$GITHUB_OUTPUT"
+            echo "tags=$image:$ver,$image:sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: ${{ steps.meta.outputs.build_args }}
+          no-cache: ${{ inputs.ob_ref != '' }}   # a branch moves; never reuse its layer
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
