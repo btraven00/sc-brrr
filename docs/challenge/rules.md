@@ -4,25 +4,40 @@ Rules for third-party entries. How to write a module is in [module.md](module.md
 
 ## Submitting
 
-A submission is a pull request that adds or updates one file, `submissions/<account>/<method>.yaml`, containing a single module block for the `pipeline` stage:
+A submission is a pull request that adds or updates one file, `submissions/<account>/<method>.yaml`. It takes one of two forms (see [module.md](module.md)).
+
+**An omni-scrna module, unchanged.** The organisers run its stage scripts through the sc-brrr fuser:
 
 ```yaml
-id: team_rustfast                     # unique; must not start with a digit
+id: team_rustfast                     # unique; [a-z0-9_-], must not start with a digit
+module: https://github.com/<org>/<repo>@<40-char sha>   # an immutable pin; branches are rejected
+stages: pca=pca.py,knn=knn.py,cluster=cluster.py       # your three stage scripts, in order
+environment: envs/<method>.yml        # the one conda env, a path in your repo
+requires_capabilities: [cuda]         # optional: cuda | metal
+parameters:                           # your method's own options, per stage: <stage>_<param>
+  pca_solver: randomized
+  knn_algorithm: cagra
+```
+
+**One pipeline function**, run by the sc-brrr driver:
+
+```yaml
+id: team_rustfast
 repository:
   url: https://github.com/<org>/<repo>
-  commit: <40-char sha>               # an immutable pin; branches are rejected
+  commit: <40-char sha>
 software_environment: <id>            # declared in the same file
-requires_capabilities: [cuda]         # optional: cuda | metal
+requires_capabilities: [cuda]
 ```
+
+The shared parameters are fixed by the organisers and set for every entry: 50 PCs, k = 15, Leiden resolution 1.0, the seeds, the replicates and the warm-up. An entry can't set those, and its own options (solver, index type, …) can't change them.
 
 Your module must:
 
 - pass `ob validate module`;
-- be either an omni-scrna module (three stage scripts, run unchanged by the sc-brrr fuser) or a single pipeline function run by the sc-brrr driver; see [module.md](module.md);
-- have exactly one software environment, which includes the driver;
+- write the three `pipeline` outputs as [`specs/types.yaml`](../../specs/types.yaml) defines them, for every replicate;
+- have exactly one software environment (for a pipeline function, it includes the driver);
 - need no network access at run time.
-
-The pipeline parameters are fixed by the organisers. Submissions cannot set their own.
 
 ## Queue
 

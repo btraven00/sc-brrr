@@ -9,8 +9,8 @@ api_version: "0.7.0"
 software_backend: conda
 software_environments:
   omni-data: {conda: prep/envs/omni-data.yml}
-  scanpy: {conda: modules/scanpy/envs/scanpy.linux-64.lock.yml}  # x86-nvidia profile; regenerate with pixi run lock-env
-  rapids: {conda: modules/rapids-singlecell/envs/rapids-singlecell.linux-64.lock.yml}  # CUDA 13 wheels; same regeneration
+  scanpy: {conda: envs/scanpy.linux-64.lock.yml}  # x86-nvidia profile; locked from omni-scrna/scanpy's pixi.lock
+  rapids: {conda: envs/rapids.linux-64.lock.yml}  # CUDA 13 wheels; locked from rapids-singlecell's pixi.lock
 
 stages:
   # One module per dataset size. TODO(zenodo): switch to source: zenodo + accession + hash once published.
@@ -50,77 +50,68 @@ stages:
     modules:
       # Untimed: the exact kNN reference that every method's fidelity is scored against.
       # Run once per size (seed 0), never ranked. Longer runtime (20 min): it is not a contender.
+      # Ours (baselines/reference.py, brrr driver): omni-scrna's knn.py can't select exact kNN.
       - id: reference
         name: "Reference: scanpy PCA (arpack) -> exact kNN (sklearn brute force) -> Leiden (igraph)"
         software_environment: scanpy
         resources: {cores: 8, mem_mb: 6144, runtime: 20}
-        repository: &scanpy_repo
-          url: https://github.com/btraven00/scanpy   # branch sc-brrr-pipeline; modules/scanpy is its submodule checkout
-          commit: 7fb3c8f
-          entrypoint: fuse-prof
+        repository: {url: https://github.com/btraven00/sc-brrr, commit: 6368021, entrypoint: reference}
         parameters:
-          - &scanpy_fixed
-            steps: PCA,NNG,CLUST
-            threads: 8
-            warmup_cells: 5000   # in-process warm-up >= 4096 cells (scanpy kNN switch); see infrastructure.typ
+          - {random_seed: 0, n_components: 50, n_neighbors: 15, resolution: 1.0, replicate: 0}
+
+      # The baselines are omni-scrna modules run unchanged: the brrr fuser (entrypoint `fuse`)
+      # runs their PCA, kNN and clustering scripts in one process, after one warm-up, with
+      # in-process replicates (rep<r>/ in the output dir). `module` pins the upstream commit;
+      # `<stage>_<param>` reaches that stage's script as `--<param>`.
+
+      # CPU baseline, timed: scanpy as people run it. kNN uses scanpy's default, pynndescent
+      # (approximate above 4096 cells).
+      - id: scanpy
+        name: "CPU baseline: omni-scrna/scanpy, PCA (arpack) -> kNN (pynndescent) -> Leiden (igraph), fused"
+        software_environment: scanpy
+        repository: &fuse {url: https://github.com/btraven00/sc-brrr, commit: 6368021, entrypoint: fuse}
+        parameters:
+          # 6 same-seed replicates: nondeterminism, and the timed runs.
+          - &scanpy_timed
+            module: https://github.com/omni-scrna/scanpy@b98b70b7cd72be784356045f825d48a1a7dc9365
+            stages: pca=pca.py,knn=knn.py,cluster=cluster.py
+            warmup_cells: 5000   # >= 4096 cells, so the warm-up takes scanpy's pynndescent path
             pca_solver: arpack
             pca_n_components: 50
             pca_dtype: float64
-            pca_random_seed: 0
-            nng_n_neighbors: 15
-            nng_knn_transformer: sklearn
-            nng_random_seed: 0
-            clust_resolution: 1.0
-            clust_leiden_flavor: igraph
-            clust_random_seed: 0
-            replicate: 0
-
-      # Tier 0, timed: scanpy as people run it. kNN uses scanpy's default, pynndescent
-      # (approximate above 4096 cells).
-      - id: scanpy
-        name: "Tier 0: scanpy defaults, PCA (arpack) -> kNN (pynndescent) -> Leiden (igraph), fused in-process"
-        software_environment: scanpy
-        repository: *scanpy_repo
-        parameters:
-          # Replicates run in one process after one warm-up (rep<r>/ in the output dir), so
-          # the warm-up is paid once per job, not once per replicate.
-          # 6 same-seed replicates: nondeterminism, and the timed runs.
-          - &scanpy_timed
-            <<: *scanpy_fixed
-            nng_knn_transformer: pynndescent
+            knn_n_neighbors: 15
+            knn_flavor: umap
+            cluster_resolution: 1.0
+            cluster_flavor: igraph
+            random_seed: 0
             replicates: 6
             seed_stride: 0
-          # 5 different seeds: seed sensitivity (RQ5). One seed drives all three steps:
-          # replicate r uses seed 1 + r for PCA, kNN and Leiden alike.
-          - {<<: *scanpy_timed, pca_random_seed: 1, nng_random_seed: 1, clust_random_seed: 1, replicates: 5, seed_stride: 1}
+          # 5 different seeds: seed sensitivity (RQ5). Replicate r uses seed 1 + r in every stage.
+          - {<<: *scanpy_timed, random_seed: 1, replicates: 5, seed_stride: 1}
 
-      # Tier 2b, timed: rapids-singlecell with X uploaded once and everything resident in VRAM.
-      # Exact kNN (cuVS brute force), so its graph is comparable to the reference's.
+      # GPU baseline, timed: rapids-singlecell. Exact kNN (cuVS brute force), so its graph is
+      # comparable to the reference's.
       - id: rsc
-        name: "Tier 2b: rapids-singlecell, PCA -> kNN (cuVS brute) -> Leiden, resident on the GPU, fused in-process"
+        name: "GPU baseline: omni-scrna/rapids-singlecell, PCA (covariance eigh) -> kNN (cuVS brute) -> Leiden, fused"
         software_environment: rapids
         requires_capabilities: [cuda]
-        repository:
-          url: https://github.com/btraven00/rapids-singlecell   # branch sc-brrr-fuse; modules/rapids-singlecell is its submodule checkout
-          commit: c3e1ebe
-          entrypoint: fuse-prof
+        repository: *fuse
         parameters:
-          # Same design as scanpy: 6 same-seed replicates + 5 paired seeds, in-process after one warm-up.
           - &rsc_timed
-            steps: PCA,NNG,CLUST
-            threads: 8
+            module: https://github.com/omni-scrna/rapids-singlecell@29b6614ca06b7aefb2d475377b5600f9dcd6fd64
+            stages: pca=pca.py,knn=knn.py,cluster=cluster_graph.py
             warmup_cells: 5000
+            pca_solver: covariance-eigh
             pca_n_components: 50
             pca_dtype: float64
-            pca_random_seed: 0
-            nng_n_neighbors: 15
-            nng_knn_algorithm: brute
-            nng_random_seed: 0
-            clust_resolution: 1.0
-            clust_random_seed: 0
+            knn_n_neighbors: 15
+            knn_flavor: rapids
+            cluster_method: rapids-leiden
+            cluster_resolution: 1.0
+            random_seed: 0
             replicates: 6
             seed_stride: 0
-          - {<<: *rsc_timed, pca_random_seed: 1, nng_random_seed: 1, clust_random_seed: 1, replicates: 5, seed_stride: 1}
+          - {<<: *rsc_timed, random_seed: 1, replicates: 5, seed_stride: 1}
 
   # Untimed. One node per size, every pipeline run of that size as a member.
   # The module only knows --name, not the group, so the size lives in the path.
@@ -128,12 +119,16 @@ stages:
     gather:
       - {from: clusters_tsv, group_by: data}
     outputs:
-      - {id: metrics_tsv, path: "{name}_metrics.tsv"}
+      - {id: metrics_jsonl, path: "{name}_metrics.jsonl"}   # records: specs/README.md
     modules:
       - id: n_clusters
         name: "Cluster count per run (no reference needed)"
         software_environment: scanpy
-        repository: {url: https://github.com/btraven00/sc-brrr, commit: aa7ea5a, entrypoint: n-clusters}
+        repository: {url: https://github.com/btraven00/sc-brrr, commit: 6368021, entrypoint: n-clusters}
+      - id: contract
+        name: "Every output of every replicate against specs/types.yaml"
+        software_environment: scanpy
+        repository: {url: https://github.com/btraven00/sc-brrr, commit: 6368021, entrypoint: contract}
 
   # Next increment, once its module exists:
   # - id: report           # global gather -> scoreboard.md (Pages)
