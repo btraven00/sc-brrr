@@ -130,6 +130,26 @@ The run happens in two steps, because the timed step has no network:
 + *Setup* (network on, untimed): `ob run … --dry` fetches and pins the modules, then `ob run … -- --conda-create-envs-only` builds the environments into a cached volume.
 + *Run* (`--network none`, `--cpus 8 --memory <cap> --memory-swap <cap>`, cpuset/NUMA as above, a timeout, the GPU through CDI): datasets and envs mounted read-only, only `out/` writable, `ob run … --cores 8 -k`. Jobs run one at a time, so the container cap is also the per-job cap.
 
+Both steps set `XDG_CACHE_HOME=<out>/.cache`, so ob's git cache (`$XDG_CACHE_HOME/omnibenchmark/git`) lives in the `out/` volume and survives from setup to run. ob 0.7.0 deletes that cache when a fetch fails, which is every fetch offline; the run step needs ob with omnibenchmark/omnibenchmark\#395, which falls back to the cached copy. Datasets are mounted at `/data` and the plan names them `file:///data/…`. Mount real files: the symlinks in `data/prep/` point to absolute host paths and break inside the container. Verified end to end on the 10k slice (data → reference + scanpy → `n_clusters`), 2026-10-08.
+
+=== Base image
+
+`Containerfile` at the repo root: `debian:bookworm-slim`, Miniforge (conda-forge, pinned by `ARG MINIFORGE`), and an `ob` conda env with denet (conda-forge) and omnibenchmark. Nothing else: methods bring their own conda envs, built in the setup step. The denet in the image is not yet the trusted one, because a module that calls `denet` gets the copy in its own env.
+
+```sh
+podman build -t sc-brrr-base:0.7.0 .              # ob release (ARG OB default)
+podman build -t sc-brrr-base:ob-<ref> \
+  --build-arg OB=git+https://github.com/omnibenchmark/omnibenchmark@<ref> .
+```
+
+`OB` is any pip requirement, so an unmerged ob branch or commit can be tested before it is released. Prefer a commit: a branch moves, and a rebuild reuses the cached layer unless `--no-cache` is given. `ob --version` and `pip show omnibenchmark` inside the image report the commit installed.
+
+CI (`.github/workflows/image.yml`) pushes to `ghcr.io/btraven00/sc-brrr-base`:
+- on a push to `main` that touches `Containerfile` or the workflow: `:<ob version>` and `:sha-<commit>`;
+- manually, with an ob branch or commit: `gh workflow run image.yml -f ob_ref=<ref>` gives `:ob-<ref>`, always built without cache.
+
+The repo is private, so the package is too: the scoring host pulls with a token that has `read:packages`.
+
 The baseline and the candidate run in *separate* containers, each restricted to its own slice with `ob run --filter`. In one shared container, the candidate could rewrite the baseline's outputs or traces. `apple-silicon` can't use this (podman runs in a VM there and can't reach Metal), so it keeps its native setup.
 
 = Scoring service
