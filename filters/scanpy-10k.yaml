@@ -1,0 +1,9 @@
+# obfilter: 10k; the exact reference + every scanpy combo (6 same-seed replicates, 5 seeds) + metrics.
+picks:
+  data:
+    hao2021_10k: all
+  pipeline:
+    reference: all
+    scanpy: all
+  metrics:
+    n_clusters: all

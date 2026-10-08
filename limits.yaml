@@ -1,0 +1,11 @@
+# Host profile for runner.py. Per-job cores, memory and time come from the plan's
+# `resources:` (via the generated Snakefile); these are only what the plan can't say.
+image: localhost/sc-brrr-base:ob-4e3e526   # needs ob with omnibenchmark#395; ghcr.io/btraven00/sc-brrr-base:ob-<ref> once pull auth is set
+default_mem_mb: 6144     # rules without mem_mb (data, metrics)
+default_runtime: 30      # minutes, rules without runtime
+cpuset_cpus: null        # e.g. "0-7"; TBD per host (infrastructure.typ, Cores and NUMA)
+cpuset_mems: null        # e.g. "0"
+# Host capabilities -> podman args. Advertised to ob (--with-capability), and given only to
+# jobs whose module lists them in requires_capabilities, so CPU jobs never reserve the GPU.
+capabilities:
+  gpu: [--device, nvidia.com/gpu=all]   # x86-nvidia, CDI; apple-silicon has no container GPU

@@ -3,3 +3,4 @@ protocol.pdf
 data/
 out/
 docs/*.pdf
+runs/
