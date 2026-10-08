@@ -218,11 +218,14 @@ This is modelled on the conda-forge bots. All state is in git, and nothing runs 
 - *Same rule for every method:* it lives in the shared runner, not in each method.
 - *Safe because the steps are pure:* re-running them can't leak state into the timed run. Tested: outputs are byte-identical with and without warm-up (scanpy module).
 - *Measured* (10k, scanpy defaults, laptop): kNN phase 25.5 s cold → 3.2 s after a 5,000-cell warm-up, with the compile in `warmup:nng` (14.6 s).
-- *Next: replicates in one process* (#tbd[implement]). Warm up once, then run every replicate and seed in a loop, timing each; no fork. This saves ~12–16 s per replicate at 10k (the warm-up is most of a run's wall time, see @isolation). The cost is state carried between replicates, which becomes the method's hygiene, checked by the runner:
+- *Replicates in one process* (scanpy done, `fuse.py --replicates N --seed_stride S`; #tbd[rsc]). Warm up once, then run every replicate and seed in a loop, timing each; no fork. This saves ~12–16 s per replicate at 10k (the warm-up is most of a run's wall time, see @isolation). The cost is state carried between replicates, which becomes the method's hygiene, checked by the runner:
   - RSS and NVML GPU memory at each replicate boundary; a *warning* if the baseline or peak creeps from replicate 1 to n (#tbd[threshold]).
   - The harness reloads X and runs `gc.collect()` (and frees the CuPy pool) between replicates.
   - Hard limits stay hard: the container memory cap and the time limit (SIGTERM, then kill) cover the whole loop.
   - Spot check: one replicate re-run in a fresh process must give the same output and a similar time. This catches memoised results as well as leaks.
+  - Exit reason: the module ends its event log with `exit` (`reason`: ok / sigterm / error, and the replicates done), copied to the manifest as `module`. It is reported by the module; the runner's own SIGTERM / OOM / exit records are authoritative.
+  - *Measured* (10k, scanpy, laptop, 2026-10-08): 11 replicates in 2 jobs take 69 s of container time (37 + 32 s), down from 270 s in 11 jobs. One warm-up per job (`warmup:nng` 13–15 s); every replicate after it takes 2.6–3.1 s, flat from first to last, so the loop doesn't flatter later replicates. Clusters as before (reference 20, scanpy 20 / 22).
+  - *scanpy itself creeps:* RSS 778 → 898 MB over 6 replicates (+70 MB at replicate 1, then ~10 MB per replicate), so a 10 % threshold flags it. Not glibc holding freed memory (the same after `malloc_trim`), and not Python objects (the traced Python heap stays at 98 MB): native memory, #tbd[numba/LLVM code, BLAS or igraph]. #tbd[threshold: per-replicate slope against the memory cap rather than a ratio].
 - The protocol must call the timed number "steady state", not just "timed". The fixed term $c$ of the scaling fit then mostly moves into the cold-start column.
 
 = Metric definitions <metrics>

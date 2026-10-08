@@ -56,7 +56,7 @@ stages:
         resources: {cores: 8, mem_mb: 6144, runtime: 20}
         repository: &scanpy_repo
           url: https://github.com/btraven00/scanpy   # branch sc-brrr-pipeline; modules/scanpy is its submodule checkout
-          commit: 90875b4
+          commit: 7fb3c8f
           entrypoint: fuse-prof
         parameters:
           - &scanpy_fixed
@@ -82,18 +82,17 @@ stages:
         software_environment: scanpy
         repository: *scanpy_repo
         parameters:
-          # 5 same-seed replicates: nondeterminism, and the timed runs. Warm-up is replicate 0.
+          # Replicates run in one process after one warm-up (rep<r>/ in the output dir), so
+          # the warm-up is paid once per job, not once per replicate.
+          # 6 same-seed replicates: nondeterminism, and the timed runs.
           - &scanpy_timed
             <<: *scanpy_fixed
             nng_knn_transformer: pynndescent
-            replicate: [0, 1, 2, 3, 4, 5]
-          # 5 different seeds: seed sensitivity (RQ5). One seed drives all three steps, so they
-          # are paired by hand; a grid over three seed lists would give 125 combos.
-          - {<<: *scanpy_timed, pca_random_seed: 1, nng_random_seed: 1, clust_random_seed: 1, replicate: 1}
-          - {<<: *scanpy_timed, pca_random_seed: 2, nng_random_seed: 2, clust_random_seed: 2, replicate: 1}
-          - {<<: *scanpy_timed, pca_random_seed: 3, nng_random_seed: 3, clust_random_seed: 3, replicate: 1}
-          - {<<: *scanpy_timed, pca_random_seed: 4, nng_random_seed: 4, clust_random_seed: 4, replicate: 1}
-          - {<<: *scanpy_timed, pca_random_seed: 5, nng_random_seed: 5, clust_random_seed: 5, replicate: 1}
+            replicates: 6
+            seed_stride: 0
+          # 5 different seeds: seed sensitivity (RQ5). One seed drives all three steps:
+          # replicate r uses seed 1 + r for PCA, kNN and Leiden alike.
+          - {<<: *scanpy_timed, pca_random_seed: 1, nng_random_seed: 1, clust_random_seed: 1, replicates: 5, seed_stride: 1}
 
       # Tier 2b, timed: rapids-singlecell with X uploaded once and everything resident in VRAM.
       # Exact kNN (cuVS brute force), so its graph is comparable to the reference's.

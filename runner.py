@@ -107,6 +107,27 @@ def watch(cmd, name, log, term_after=None):
     return proc.returncode, {"mem_peak_mb": round(peak / 2**20, 1), "cpu_s": round(cpu_us / 1e6, 1)}, termed
 
 
+CREEP = 0.10  # ponytail: warn when the last replicate's RSS is >10 % above the first; threshold TBD
+
+
+def events_summary(path):
+    """What the module says about itself (obkit-events.jsonl, written inside the container, so
+    reported, not measured): why it quit, and RSS at the end of each in-process replicate."""
+    exit_, rss = None, []
+    for line in open(path):
+        e = json.loads(line)
+        if e.get("phase") != "end":
+            continue
+        if e["event"] == "exit":
+            exit_ = e.get("attrs")
+        elif e["event"] == "replicate" and (r := e.get("attrs", {}).get("rss_mb")) is not None:
+            rss.append(r)
+    out = {"exit": exit_, "replicate_rss_mb": rss}
+    if len(rss) > 1 and rss[-1] > rss[0] * (1 + CREEP):
+        out["warning"] = f"memory creep: RSS {rss[0]} -> {rss[-1]} MB over {len(rss)} replicates"
+    return out
+
+
 def denet_summary(path):
     """Peaks of the traced process tree, from denet's aggregated samples."""
     rss, threads, cpu_s, n, prev = 0, 0, 0.0, 0, None
@@ -232,9 +253,14 @@ def main():
     manifest["outputs"] = {str(p.relative_to(out)): sha256(p) for p in files}
     # cross-check: denet's view (inside, module env) next to the cgroup's (host side)
     traces = {p.parent.name.lstrip("."): denet_summary(p) for p in files if p.name == "denet.jsonl"}
+    events = {p.parent.name.lstrip("."): events_summary(p) for p in files if p.name == "obkit-events.jsonl"}
     for j in manifest["jobs"]:
         if d := traces.get(j["rule"].rsplit("_", 1)[-1]):
             j["denet"] = d
+        if ev := events.get(j["rule"].rsplit("_", 1)[-1]):
+            j["module"] = ev
+            if "warning" in ev:
+                print(f"WARNING {j['rule']}: {ev['warning']}")
     for p in files:
         if p.parts[-1].endswith(("_metrics.tsv", ".jsonl", "parameters.json", "performance.txt", "lineage.json")):
             dst = res / p.relative_to(out)
