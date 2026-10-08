@@ -1,95 +1,77 @@
 # Writing a module
 
-There are two ways in. Most entries need the first.
+An entry is one Omnibenchmark module with one entrypoint: an instrumented pipeline that
+takes the published input and writes the three outputs. How the steps inside are
+organised is up to you.
 
-1. **An omni-scrna module, as it is.** If your method has the three omni-scrna stage
-   scripts (PCA, kNN, clustering), you submit the module unchanged. The sc-brrr fuser runs
-   the three scripts in one process and times every stage.
-2. **One function**, for methods that can't be split into those stages (one native call
-   from matrix to labels). See [One function](#one-function).
+## The contract
 
-## 1. An omni-scrna module
+The plan calls your entrypoint with:
 
-Nothing in your module refers to sc-brrr. It needs what any omni-scrna module has:
+| argument | |
+|---|---|
+| `--data_h5ad` | the input: cells × 2,000 HVGs, QC'd and log-normalised |
+| `--output_dir`, `--name` | where to write, and the file prefix |
+| `--random_seed` | the seed of replicate 0 |
+| `--n_components`, `--n_neighbors`, `--resolution` | fixed by the organisers: 50, 15, 1.0 |
+| `--replicates`, `--seed_stride` | run the pipeline this many times in one process; replicate r uses `random_seed + r * seed_stride` |
+| `--warmup_cells` | first run the whole pipeline on this many cells and discard it (imports, JIT, GPU initialisation) |
 
-- one script per stage, each with its own `argparse` CLI: `--output_dir`, `--name`,
-  `--random_seed`, its input flag, and your method's parameters;
-- the omni-scrna stage inputs and outputs, by name:
+and expects:
 
-  | stage | reads | writes |
-  |---|---|---|
-  | PCA | `--normalized_selected_h5` | `{name}_embedding.tsv` |
-  | kNN | `--embedding_tsv` | `{name}_neighbors.h5` |
-  | clustering | `--neighbors_h5` | `{name}_clusters.tsv` |
-
-  What the three outputs must contain is in [`specs/types.yaml`](../../specs/types.yaml);
-  every run is checked against it.
-- one conda environment for the whole method. Its on-disk size is reported as
+- **Outputs:** `{name}_embedding.tsv`, `{name}_neighbors.h5`, `{name}_clusters.tsv` in
+  `rep<r>/` for every replicate, and replicate 0's also in `--output_dir`. What they must
+  contain is in [`specs/types.yaml`](../../specs/types.yaml); every replicate is checked.
+- **Instrumentation:** `obkit-events.jsonl` in `--output_dir`, with one `replicate` phase per
+  replicate (its duration is your ranked time) and, inside it, `pca`, `knn` and `cluster`
+  phases where your method can tell them apart. Write outputs after the `replicate` phase
+  ends: writing is not part of the timed work.
+- **One conda environment** for the whole method. Its on-disk size is reported as
   **frugality**, so list only what you use.
 
-Python stage scripts run in one process. Scripts in other languages (R: `Rscript`) run
-one after another as separate processes, so each pays its own interpreter start.
+## Python: the brrr driver
 
-### What the fuser does
+The driver implements all of the above; you write the method. Start from
+[`templates/python/`](../../templates/python/):
 
-```sh
-python -m brrr.fuse --module <your module> --stages pca=pca.py,knn=knn.py,cluster=cluster.py \
-  --data_h5ad data.h5ad --output_dir out --name test \
-  --pca_solver arpack --pca_n_components 50 --knn_n_neighbors 15 --cluster_resolution 1.0
+```python
+from brrr import Graph, Params, compose, run
+
+def pca(adata: ad.AnnData, p: Params) -> np.ndarray: ...   # (n, p.n_components)
+def knn(emb: np.ndarray, p: Params) -> Graph: ...          # Graph(distances, connectivities)
+def cluster(g: Graph, p: Params) -> list: ...              # (n,) labels
+
+if __name__ == "__main__":
+    run(compose(pca, knn, cluster))
 ```
 
-- **Parameters:** `--<stage>_<param>` reaches that stage's script as `--<param>`.
-  `--output_dir`, `--name` and `--random_seed` go to every stage. The organisers set them
-  all in the plan; entries don't choose their own.
-- **Input:** the published data, written once in the format your PCA script reads.
-- **Warm-up:** the whole chain once on the first N cells, thrown away, so imports, JIT
-  compilation and GPU initialisation don't land in the timed runs.
-- **Replicates:** the chain several times in the same process, with seed
-  `random_seed + r * seed_stride`, each writing to `rep<r>/`.
-- **Timing:** each stage is an obkit phase (`stage:pca`, `stage:knn`, `stage:cluster`) inside a
-  `replicate` phase. Phases your scripts emit themselves (`load`, `compute`, `write`, …) are
-  kept, nested inside; emitting `load` and `write` lets the analysis separate your I/O
-  from your compute. Your scripts' own `init_logger` calls are ignored: the fuser decides
-  where the event log goes.
+- Each step gets its own phase. Whatever `pca` returns is what `knn` receives, so data can
+  stay on the GPU between steps; `mypy method.py` checks the chain.
+- If your method doesn't split into those steps, write one `pipeline(adata, p) -> Result`
+  function, mark what you can with `with phase("knn"):`, and call `run(pipeline)`.
+- GPU: `run(..., sync=cupy.cuda.Device().synchronize)`, so phases wait for the kernels.
+- The driver loads the input, runs the warm-up and the replicates, checks and writes the
+  outputs, and handles SIGTERM before the time limit.
 
-Stages hand over through files, as in a split run, so reading and writing them counts in
-the stage time.
+## Other languages
 
-### Try it locally
+Implement the contract in your entrypoint. An obkit event is one JSON line per phase
+boundary, appended to `obkit-events.jsonl`:
+
+```json
+{"ts": "2026-10-08T12:00:00.000Z", "event": "replicate", "phase": "start"}
+{"ts": "2026-10-08T12:00:02.130Z", "event": "replicate", "phase": "end", "attrs": {"replicate": 0, "seed": 0}}
+```
+
+(UTC, millisecond precision.) If you don't run replicates in-process, each replicate's
+startup and compilation count toward its time.
+
+## Try it locally
 
 ```sh
-python -m brrr.fuse --module . --stages ... --data_h5ad data.h5ad --output_dir out --name test \
-  --warmup_cells 5000 --replicates 3 --seed_stride 1 <params>
+python method.py --data_h5ad data.h5ad --output_dir out --name test \
+  --warmup_cells 5000 --replicates 3 --seed_stride 1
 ob validate module .
 ```
 
-## One function
-
-For a method that can't be split, write the pipeline as one function and hand it to the
-driver. A template is in [`templates/python/`](../../templates/python/).
-
-```python
-from brrr import Graph, Params, Result, phase, run
-
-def pipeline(adata: ad.AnnData, p: Params) -> Result:
-    with phase("pca"):
-        emb = ...
-    with phase("knn"):
-        g = Graph(distances, connectivities)
-    with phase("cluster"):
-        labels = ...
-    return Result(emb, g, labels)
-
-if __name__ == "__main__":
-    run(pipeline)
-```
-
-- `Params` holds what the organisers fix: `n_components` (50), `n_neighbors` (15),
-  `resolution` (1.0) and `seed`.
-- The driver loads the data, runs the warm-up and the replicates, and writes the three
-  outputs. The end-to-end `replicate` time is measured whether or not you mark phases.
-- If your steps do split, `run(compose(pca, knn, cluster))` phases them for you, and
-  `mypy` checks that each step accepts what the previous one returns.
-- GPU: pass `sync=cupy.cuda.Device().synchronize` to `run`, so phases wait for the kernels.
-
-Either way, declare `requires_capabilities: [cuda]` in your submission if you need the GPU.
+Declare `requires_capabilities: [cuda]` in your submission if you need the GPU.

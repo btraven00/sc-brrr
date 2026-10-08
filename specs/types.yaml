@@ -5,6 +5,10 @@
 #   n            cells in the run's input h5ad; every artifact lists them in input order
 #   {param: p}   a value from the run's parameters.json (any key ending in p, so
 #                n_components and pca_n_components both match)
+#   handoff      the module functions that write and read this type (module/src/*.py). The
+#                fuser hands the written object straight to the next stage's reader, in
+#                memory, and writes the file after the timed replicate. A module whose
+#                stages write or read a handed-over type any other way can't be fused.
 version: 1
 types:
   embedding_tsv:
@@ -13,6 +17,7 @@ types:
     id_column: cell_id
     columns: {prefix: PC, count: {param: n_components}}   # PC1 .. PC<n_components>
     values: [finite]
+    handoff: {write: write_embeddings, read: read_embeddings}
 
   neighbors_h5:
     path: "{name}_neighbors.h5"
@@ -21,6 +26,7 @@ types:
     matrices: {distances: /, connectivities: /connectivities}
     min_degree: {param: n_neighbors, offset: -1}           # k - 1 neighbours per cell, self excluded
     values: [finite, nonnegative]
+    handoff: {write: write_graph, read: read_graph}
 
   clusters_tsv:
     path: "{name}_clusters.tsv"
@@ -28,3 +34,7 @@ types:
     id_column: cell_id
     columns: [cluster]
     values: [nonempty]
+    handoff: {write: write_labels, read: read_labels}
+
+# Written by stages but not handed over: deferred to after the timed replicate too.
+deferred_writers: [write_loadings]

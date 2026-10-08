@@ -1,4 +1,4 @@
-"""Fuse an omni-scrna module's stage scripts into one process, unchanged.
+"""Fuse an omni-scrna module's stage scripts into one process, unchanged, handing over in memory.
 
     python -m brrr.fuse --module DIR|URL@SHA --stages pca=pca.py,knn=knn.py,cluster=cluster_graph.py \\
         --data_h5ad X --output_dir O --name N [--random_seed S --replicates R --seed_stride K \\
@@ -6,15 +6,16 @@
 
 Each stage script runs as it is (runpy, as `__main__`) with the argv it would get from
 its own ob stage: `--<stage>_<param>` becomes that stage's `--<param>`; `--output_dir`,
-`--name` and `--random_seed` are passed to every stage; each stage reads the previous
-stage's output. The chain's file names and flags are the output ids of specs/types.yaml,
-in order (embedding_tsv -> neighbors_h5 -> clusters_tsv).
+`--name` and `--random_seed` are passed to every stage; each stage is pointed at the
+previous stage's output. The chain's file names and flags are the output ids of
+specs/types.yaml, in order (embedding_tsv -> neighbors_h5 -> clusters_tsv).
 
-What fusing buys without touching the module: one interpreter, so imports, JIT caches and
-the CUDA context are paid once (in the warm-up), not per stage; and a phase per stage
-(`stage:<name>`) around whatever phases the module emits itself. What it doesn't: the
-stages still hand over through files, so their read/write is in the stage time. Modules
-that emit load/write phases let the analysis subtract it.
+In memory: specs/types.yaml names, per type, the module functions that write and read it
+(`handoff`). The fuser wraps them in the module's own src/ modules before any stage runs:
+a write keeps the object and queues the file for after the timed replicate; the next
+stage's read of that path gets the object back. Nothing touches disk between stages.
+A stage that writes or reads a handed-over type any other way fails the run, with the
+stage named: it can't be fused until its I/O goes through the module's shared functions.
 
 The fuser owns the event log: a stage's own init_logger() is ignored, so every phase,
 the module's included, lands in <output_dir>/obkit-events.jsonl (the warm-up's in
@@ -23,6 +24,7 @@ the module's included, lands in <output_dir>/obkit-events.jsonl (the warm-up's i
 
 import argparse
 import gc
+import importlib
 import os
 import runpy
 import shutil
@@ -40,7 +42,48 @@ import yaml
 
 from brrr import _rss_mb, phase
 
-TYPES = yaml.safe_load((Path(__file__).resolve().parents[2] / "specs" / "types.yaml").read_text())["types"]
+SPEC = yaml.safe_load((Path(__file__).resolve().parents[2] / "specs" / "types.yaml").read_text())
+TYPES = SPEC["types"]
+
+
+class Handoff:
+    """The module's registered writers and readers, wrapped: writes are kept in memory and
+    queued, reads of a kept path return the object. One instance per fused run."""
+
+    def __init__(self, module):
+        writers = {t["handoff"]["write"] for t in TYPES.values()} | set(SPEC.get("deferred_writers", []))
+        readers = {t["handoff"]["read"] for t in TYPES.values()}
+        self.memo, self.queue, self.served = {}, [], set()
+        sys.path.insert(0, str(module / "src"))
+        for f in sorted((module / "src").glob("*.py")):
+            text = f.read_text()
+            names = {n for n in writers | readers if f"def {n}(" in text}
+            if not names:
+                continue
+            mod = importlib.import_module(f.stem)
+            for n in names:
+                setattr(mod, n, (self._writer if n in writers else self._reader)(getattr(mod, n)))
+
+    def _writer(self, real):
+        def write(obj, path, *a, **k):
+            self.memo[str(Path(path).absolute())] = obj
+            self.queue.append((real, obj, path, a, k))
+        return write
+
+    def _reader(self, real):
+        def read(path, *a, **k):
+            key = str(Path(path).absolute())
+            if key in self.memo:
+                self.served.add(key)
+                return self.memo[key]
+            return real(path, *a, **k)  # an outside input, not a handover
+        return read
+
+    def flush(self):
+        """The queued writes, for real (after the replicate, outside its timing)."""
+        for real, obj, path, a, k in self.queue:
+            real(obj, path, *a, **k)
+        self.memo, self.queue, self.served = {}, [], set()
 
 
 def write_omni_h5(adata, path):
@@ -91,13 +134,9 @@ def clone(url, sha, d):
 
 
 def run_stage(module, script, argv):
-    """One stage script, unchanged: in this process if it is Python, else as a subprocess
-    (R: still composed and phased, but each stage pays its own interpreter start)."""
+    """One stage script, unchanged, in this process."""
     if not script.endswith(".py"):
-        cmd = (["Rscript"] if script.endswith(".R") else []) + [str(module / script)] + argv
-        if (rc := subprocess.run(cmd).returncode):
-            raise RuntimeError(f"{script} exited with {rc}")
-        return
+        raise RuntimeError(f"{script}: only Python stage scripts can share a process and hand over in memory")
     sys.argv = [str(module / script)] + argv
     try:
         runpy.run_path(str(module / script), run_name="__main__")
@@ -106,8 +145,9 @@ def run_stage(module, script, argv):
             raise RuntimeError(f"{script} exited with {e.code}") from None
 
 
-def chain(module, stages, params, data, out, name, seed):
-    """Run the stages in order, each reading the last one's output; return the files written."""
+def chain(module, stages, params, data, out, name, seed, h):
+    """Run the stages in order, each handed the last one's output in memory; return the
+    output files (written by h.flush(), after the caller's timed phase)."""
     ids = list(TYPES)  # embedding_tsv, neighbors_h5, clusters_tsv
     prev = ("--" + params.pop("_input_flag"), data)
     out.mkdir(parents=True, exist_ok=True)
@@ -116,8 +156,22 @@ def chain(module, stages, params, data, out, name, seed):
         for k, v in params.get(stage, {}).items():
             argv += [f"--{k}", str(v)]
         with phase(f"stage:{stage}"):
-            run_stage(module, script, argv)
-        prev = ("--" + ids[i], out / TYPES[ids[i]]["path"].format(name=name))
+            try:
+                run_stage(module, script, argv)
+            except OSError as e:  # the handed-over file isn't on disk: the stage read it some other way
+                if i and str(Path(prev[1]).absolute()) not in h.served:
+                    raise RuntimeError(f"stage {stage} reads {prev[0][2:]} itself, not through "
+                                       f"{TYPES[ids[i - 1]]['handoff']['read']}(): can't hand it over in memory") from e
+                raise
+        t = TYPES[ids[i]]
+        f = out / t["path"].format(name=name)
+        if f.exists():
+            raise RuntimeError(f"stage {stage} wrote {f.name} itself, not through {t['handoff']['write']}(): can't hand it over in memory")
+        if str(f.absolute()) not in h.memo:
+            raise RuntimeError(f"stage {stage} didn't write {ids[i]} through {t['handoff']['write']}(): can't hand it over in memory")
+        if i and str(Path(prev[1]).absolute()) not in h.served:
+            raise RuntimeError(f"stage {stage} didn't read {prev[0][2:]} through {TYPES[ids[i - 1]]['handoff']['read']}()")
+        prev = ("--" + ids[i], f)
     return [out / TYPES[t]["path"].format(name=name) for t in ids[: len(stages)]]
 
 
@@ -164,13 +218,15 @@ def main(argv=None):
     if a.warmup_cells:
         write_omni_h5(adata[: a.warmup_cells], work / "warmup.h5")
     del adata
-    run = lambda data, d, seed: chain(a.module, stages, {**params, "_input_flag": a.input_flag}, data, d, a.name, seed)
+    h = Handoff(a.module)
+    run = lambda data, d, seed: chain(a.module, stages, {**params, "_input_flag": a.input_flag}, data, d, a.name, seed, h)
 
     try:
         if a.warmup_cells:
             real_init(str(work / "warmup"))
             with phase("warmup"):
                 run(work / "warmup.h5", work / "warmup", a.random_seed)
+            h.flush()
         real_init(str(out))
         if a.warmup_cells:  # one marker in the main log, so its timeline shows the warm-up
             obl.emit("warmup", "end", attrs={"log": ".fuse/warmup/obkit-events.jsonl"})
@@ -182,6 +238,8 @@ def main(argv=None):
                 attrs.update(replicate=r, seed=seed)
                 files = run(work / "input.h5", out / f"rep{r}", seed)
                 attrs["rss_mb"] = _rss_mb()
+            with phase("write"):  # the stages' outputs, to disk, outside the replicate
+                h.flush()
             if r == 0:  # the declared outputs are replicate 0's
                 for f in files:
                     shutil.copy(f, out / f.name)

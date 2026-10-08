@@ -4,39 +4,25 @@ Rules for third-party entries. How to write a module is in [module.md](module.md
 
 ## Submitting
 
-A submission is a pull request that adds or updates one file, `submissions/<account>/<method>.yaml`. It takes one of two forms (see [module.md](module.md)).
-
-**An omni-scrna module, unchanged.** The organisers run its stage scripts through the sc-brrr fuser:
+A submission is a pull request that adds or updates one file, `submissions/<account>/<method>.yaml`, containing a single module block for the `pipeline` stage:
 
 ```yaml
 id: team_rustfast                     # unique; [a-z0-9_-], must not start with a digit
-module: https://github.com/<org>/<repo>@<40-char sha>   # an immutable pin; branches are rejected
-stages: pca=pca.py,knn=knn.py,cluster=cluster.py       # your three stage scripts, in order
-environment: envs/<method>.yml        # the one conda env, a path in your repo
-requires_capabilities: [cuda]         # optional: cuda | metal
-parameters:                           # your method's own options, per stage: <stage>_<param>
-  pca_solver: randomized
-  knn_algorithm: cagra
-```
-
-**One pipeline function**, run by the sc-brrr driver:
-
-```yaml
-id: team_rustfast
 repository:
   url: https://github.com/<org>/<repo>
-  commit: <40-char sha>
+  commit: <40-char sha>               # an immutable pin; branches are rejected
+  entrypoint: default
 software_environment: <id>            # declared in the same file
-requires_capabilities: [cuda]
+requires_capabilities: [cuda]         # optional: cuda | metal
 ```
 
-The shared parameters are fixed by the organisers and set for every entry: 50 PCs, k = 15, Leiden resolution 1.0, the seeds, the replicates and the warm-up. An entry can't set those, and its own options (solver, index type, …) can't change them.
+The parameters are fixed by the organisers and set for every entry: 50 PCs, k = 15, Leiden resolution 1.0, the seeds, the replicates and the warm-up. Submissions cannot set their own.
 
 Your module must:
 
 - pass `ob validate module`;
-- write the three `pipeline` outputs as [`specs/types.yaml`](../../specs/types.yaml) defines them, for every replicate;
-- have exactly one software environment (for a pipeline function, it includes the driver);
+- implement the pipeline contract in [module.md](module.md): the input, the three outputs as [`specs/types.yaml`](../../specs/types.yaml) defines them for every replicate, and the obkit phases;
+- have exactly one software environment;
 - need no network access at run time.
 
 ## Queue

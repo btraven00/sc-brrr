@@ -9,9 +9,16 @@ for ((i = 1; i < $#; i++)); do [[ ${!i} == --output_dir ]] && { j=$((i + 1)); ou
 [[ -n $out ]] || { echo "error: --output_dir is required" >&2; exit 2; }
 mkdir -p "$out"
 here=$(cd "$(dirname "$0")" && pwd)
+export PYTHONUNBUFFERED=1   # prints and tracebacks in order in module.log
 export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"   # the brrr package, from this checkout
 if command -v denet >/dev/null; then
-  # --gpu: NVML sampling; without a usable GPU denet warns and keeps going
-  exec denet --json --quiet --gpu --write-env --out "$out/denet.jsonl" run python3 "$@"
+  # denet swallows the child's stdout/stderr, so they go to module.log and are replayed
+  # after it exits (denet passes the exit code through). --gpu: NVML sampling; without a
+  # usable GPU denet warns and keeps going.
+  rc=0
+  denet --json --quiet --gpu --write-env --out "$out/denet.jsonl" \
+    run bash -c 'exec python3 "$@" >"$0" 2>&1' "$out/module.log" "$@" || rc=$?
+  cat "$out/module.log" >&2
+  exit $rc
 fi
 exec python3 "$@"
