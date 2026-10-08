@@ -94,6 +94,18 @@ stages:
           - {<<: *scanpy_timed, pca_random_seed: 4, nng_random_seed: 4, clust_random_seed: 4, replicate: 1}
           - {<<: *scanpy_timed, pca_random_seed: 5, nng_random_seed: 5, clust_random_seed: 5, replicate: 1}
 
-  # Next increments, once their modules exist:
-  # - id: metrics          # gather from clusters_tsv/neighbors_h5/embedding_tsv, group_by: data
+  # Untimed. One node per size, every pipeline run of that size as a member.
+  # The module only knows --name, not the group, so the size lives in the path.
+  - id: metrics
+    gather:
+      - {from: clusters_tsv, group_by: data}
+    outputs:
+      - {id: metrics_tsv, path: "{name}_metrics.tsv"}
+    modules:
+      - id: n_clusters
+        name: "Cluster count per run (no reference needed)"
+        software_environment: scanpy
+        repository: {url: https://github.com/btraven00/sc-brrr, commit: TODO, entrypoint: n-clusters}  # TODO: pin after push
+
+  # Next increment, once its module exists:
   # - id: report           # global gather -> scoreboard.md (Pages)
