@@ -192,6 +192,17 @@ This is modelled on the conda-forge bots. All state is in git, and nothing runs 
 + *Archiving.* There is one *active* version per (account, method), and at most #tbd[N] methods per account. A new version moves the active pointer. Older results stay immutable, tagged `entry/<account>/<method>/v<k>`.
 + *Re-scoring.* Results are keyed by (entry version, plan version, metrics version, host profile). When the baselines, the metrics or a profile change, the daemon re-runs every active entry in a batch, so the scoreboard never mixes versions.
 
+== Live progress (low priority) <live>
+
+#tbd[not built]. Submitters and maintainers should be able to follow a scoring run as it happens, without access to the scoring host.
+
+- *Source:* `runner.py`, on the host. It already sees everything worth showing: job start and end, the cgroup memory and CPU it polls every 0.25 s, the module's obkit phase events, the end-of-run diagnostics and warnings, and each job's container log.
+- *Transport:* the runner pushes events to a small Go service, one session per scoring run. A push is a webhook POST, signed with a per-session token minted when the session starts. Pushing happens off the job path (a background queue that drops on overflow), so a slow or dead service never delays a job or changes its timing.
+- *Direction:* outbound only. The service never calls back into the runner or the scoring host. The scorer stays a pull model (@isolation, Scoring service).
+- *Viewer:* the service holds each session's state in memory and serves a read-only page at an unguessable URL. Sessions are discarded a few hours after the run ends; the permanent record stays the results repo.
+- *GitHub:* the service updates a check run on the submission PR with the session's link and status, using a bot token that can only write checks.
+- *Untrusted text:* container logs and module events are written by candidate code. The service caps them per job, rate-limits them, and shows them as escaped plain text, never as HTML or markdown.
+
 = Instrumentation
 
 - Every timed run is wrapped in denet ≥ 0.10.3 (`pipeline-prof.sh`: `denet --json --gpu --write-env run …`), which records CPU, RSS, I/O, threads, NVML GPU memory and utilisation, and the host description.
