@@ -17,8 +17,10 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -75,13 +77,16 @@ def rules(snakefile):
     return out
 
 
-def watch(cmd, name, log):
+def watch(cmd, name, log, term_after=None):
     """Run a job container; poll its cgroup from the host. memory.peak is the kernel's running
-    max, so polling only risks missing growth in the last interval before exit."""
+    max, so polling only risks missing growth in the last interval before exit. After
+    term_after seconds every process in the cgroup gets SIGTERM, so the module can wind down
+    before podman's --timeout kills it: `podman stop` only signals PID 1 (snakemake), which
+    waits for its running job instead of passing the signal on."""
     log.write("$ " + " ".join(map(str, cmd)) + "\n")
     log.flush()
     proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
-    cg, peak, cpu_us = None, 0, 0
+    cg, peak, cpu_us, termed, t0 = None, 0, 0, False, time.monotonic()
     while proc.poll() is None:
         try:
             if cg is None and (path := sh("podman", "inspect", "-f", "{{.State.CgroupPath}}", name).stdout.strip()):
@@ -89,13 +94,17 @@ def watch(cmd, name, log):
             if cg:
                 peak = max(peak, int((cg / "memory.peak").read_text()))
                 cpu_us = int((cg / "cpu.stat").read_text().split()[1])  # usage_usec
+                if term_after is not None and not termed and time.monotonic() - t0 >= term_after:
+                    for pid in (p for f in cg.rglob("cgroup.procs") for p in f.read_text().split()):  # podman 5 nests them in container/
+                        os.kill(int(pid), signal.SIGTERM)
+                    termed = True
         except (OSError, ValueError):
             pass  # cgroup not there yet, or already gone
         try:
             proc.wait(timeout=0.25)  # returns at exit, not at the next tick
         except subprocess.TimeoutExpired:
             pass
-    return proc.returncode, {"mem_peak_mb": round(peak / 2**20, 1), "cpu_s": round(cpu_us / 1e6, 1)}
+    return proc.returncode, {"mem_peak_mb": round(peak / 2**20, 1), "cpu_s": round(cpu_us / 1e6, 1)}, termed
 
 
 def denet_summary(path):
@@ -208,14 +217,14 @@ def main():
                 "--cores", str(cores), "--allowed-rules", rule, "--", rule]
         print(f"{rule} ({cores} cores, {mem} MB, {runtime} min) ...", end=" ", flush=True)
         t0 = time.time()
-        rc, cgroup = watch(cmd, name, log)
+        rc, cgroup, termed = watch(cmd, name, log, max(0, runtime * 60 - lim.get("term_grace_s", 10)))
         wall = round(time.time() - t0, 1)
         oom = sh("podman", "inspect", "-f", "{{.State.OOMKilled}}", name).stdout.strip() == "true"
         sh("podman", "rm", name)
-        timed_out = rc != 0 and wall >= runtime * 60
+        timed_out = rc != 0 and (termed or wall >= runtime * 60)
         print("ok" if rc == 0 else f"FAILED (exit {rc}{', OOM' if oom else ''}{', timeout' if timed_out else ''})")
         manifest["jobs"].append({"rule": rule, "cores": cores, "mem_mb": mem, "runtime_min": runtime,
-                                 "capabilities": needs.get(mod, []), "exit": rc, "oom_killed": oom, "timed_out": timed_out, "wall_s": wall,
+                                 "capabilities": needs.get(mod, []), "exit": rc, "oom_killed": oom, "timed_out": timed_out, "sigterm": termed, "wall_s": wall,
                                  "cgroup": cgroup})
 
     files = sorted(p for p in out.rglob("*") if p.is_file() and not p.is_symlink()

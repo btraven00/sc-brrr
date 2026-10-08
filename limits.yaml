@@ -3,6 +3,7 @@
 image: localhost/sc-brrr-base:ob-4e3e526   # needs ob with omnibenchmark#395; ghcr.io/btraven00/sc-brrr-base:ob-<ref> once pull auth is set
 default_mem_mb: 6144     # rules without mem_mb (data, metrics)
 default_runtime: 30      # minutes, rules without runtime
+term_grace_s: 10         # SIGTERM this long before the hard --timeout kill
 conda_cache: runs/.conda   # shared conda envs + package cache, relative to the repo
 cpuset_cpus: null        # e.g. "0-7"; TBD per host (infrastructure.typ, Cores and NUMA)
 cpuset_mems: null        # e.g. "0"

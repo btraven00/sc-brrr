@@ -143,7 +143,7 @@ pixi run -e ob python runner.py benchmark.yaml --filter filters/scanpy-10k.yaml 
 
 + *Render.* Data `file://` URIs become `file:///data/<name>`, and the real file (symlinks resolved) is mounted there. Modules from this repo point at the read-only checkout, because the repo is private.
 + *Setup* (network on, untimed): `ob run … --dry` clones, pins and writes `out/Snakefile`; `ob run … -- --conda-create-envs-only --conda-prefix /conda` builds the envs.
-+ *Run* (`--network none`): every rule in the Snakefile runs in *its own container*, with that rule's `resources:` as the cap: `--cpus <cores> --memory <mem_mb> --memory-swap <mem_mb> --timeout <runtime>`, cpuset if set, `snakemake --allowed-rules <rule>`. Jobs run one at a time, in the Snakefile's order, which is topological. So the limits apply to a single run, not to the set of replicates, and a slow run cannot spend another's time.
++ *Run* (`--network none`): every rule in the Snakefile runs in *its own container*, with that rule's `resources:` as the cap: `--cpus <cores> --memory <mem_mb> --memory-swap <mem_mb> --timeout <runtime>`, cpuset if set, `snakemake --allowed-rules <rule>`. Jobs run one at a time, in the Snakefile's order, which is topological. So the limits apply to a single run, not to the set of replicates, and a slow run cannot spend another's time. `term_grace_s` (10 s) before the hard limit, the runner sends SIGTERM from the host to every process in the job's cgroup, so a module can flush and exit; podman's `--timeout` then kills whatever is left. The job is recorded as timed out either way (`sigterm` in the manifest). `podman stop` and `--init` don't do this: they signal only PID 1, snakemake, which waits for its running job instead of passing the signal on (tested).
 + *Results* (host side): `runs/<id>/results/manifest.json` with versions (repo commit, image id, ob version), the limits, sha256 of the plan, data and every output, and per job: exit code, OOM kill, timeout, wall time, cgroup peaks and the denet summary. Also copied: the metrics tables and each run's `parameters.json`, `obkit-events.jsonl`, `denet.jsonl`. Nothing in `results/` is written by code inside a container.
 
 Mounts: the checkout read-only at `/bench`, with `runs/` and `prep/out/` hidden behind an empty read-only directory (other runs' outputs). Not `--tmpfs`: together with `--memory`, crun fails to start the container ("read from the init process"). Only `out/` is writable.
@@ -218,6 +218,11 @@ This is modelled on the conda-forge bots. All state is in git, and nothing runs 
 - *Same rule for every method:* it lives in the shared runner, not in each method.
 - *Safe because the steps are pure:* re-running them can't leak state into the timed run. Tested: outputs are byte-identical with and without warm-up (scanpy module).
 - *Measured* (10k, scanpy defaults, laptop): kNN phase 25.5 s cold → 3.2 s after a 5,000-cell warm-up, with the compile in `warmup:nng` (14.6 s).
+- *Next: replicates in one process* (#tbd[implement]). Warm up once, then run every replicate and seed in a loop, timing each; no fork. This saves ~12–16 s per replicate at 10k (the warm-up is most of a run's wall time, see @isolation). The cost is state carried between replicates, which becomes the method's hygiene, checked by the runner:
+  - RSS and NVML GPU memory at each replicate boundary; a *warning* if the baseline or peak creeps from replicate 1 to n (#tbd[threshold]).
+  - The harness reloads X and runs `gc.collect()` (and frees the CuPy pool) between replicates.
+  - Hard limits stay hard: the container memory cap and the time limit (SIGTERM, then kill) cover the whole loop.
+  - Spot check: one replicate re-run in a fresh process must give the same output and a similar time. This catches memoised results as well as leaks.
 - The protocol must call the timed number "steady state", not just "timed". The fixed term $c$ of the scaling fit then mostly moves into the cold-start column.
 
 = Metric definitions <metrics>
