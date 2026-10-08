@@ -9,4 +9,4 @@ cpuset_mems: null        # e.g. "0"
 # Host capabilities -> podman args. Advertised to ob (--with-capability), and given only to
 # jobs whose module lists them in requires_capabilities, so CPU jobs never reserve the GPU.
 capabilities:
-  gpu: [--device, nvidia.com/gpu=all]   # x86-nvidia, CDI; apple-silicon has no container GPU
+  cuda: [--device, nvidia.com/gpu=all]   # x86-nvidia, CDI (name matches the methods table); apple-silicon: metal, no container GPU

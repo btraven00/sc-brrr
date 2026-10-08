@@ -137,7 +137,7 @@ pixi run -e ob python runner.py benchmark.yaml --filter filters/scanpy-10k.yaml 
 
 Mounts: the checkout read-only at `/bench`, with `runs/` and `prep/out/` hidden behind an empty read-only directory (other runs' outputs). Not `--tmpfs`: together with `--memory`, crun fails to start the container ("read from the init process"). Only `out/` is writable.
 
-*GPU and other capabilities.* `limits.yaml` maps each host capability to podman arguments (`gpu: [--device, nvidia.com/gpu=all]` on `x86-nvidia`). Setup passes them to ob as `--with-capability`, and a job gets the arguments only if its module lists the capability in `requires_capabilities`. CPU jobs never hold the GPU. Another host type is another mapping. #tbd[untested: no GPU module in the plan yet].
+*GPU and other capabilities.* `limits.yaml` maps each host capability to podman arguments (`cuda: [--device, nvidia.com/gpu=all]` on `x86-nvidia`, matching the capability column of the methods table). Setup passes them to ob as `--with-capability`, and a job gets the arguments only if its module lists the capability in `requires_capabilities`. CPU jobs never hold the GPU. Another host type is another mapping. #tbd[untested: no GPU module in the plan yet].
 
 *Conda cache.* Envs are built once into `runs/.conda` (`conda_cache` in `limits.yaml`), mounted at `/conda`: writable during setup, read-only in jobs. Snakemake keys envs by a hash of the env file, so runs share them. `CONDA_PKGS_DIRS` points there too. A second run's setup drops from minutes to ~10 s. #tbd[one cache per entry once third-party setups run here: the setup step can write to every env in the shared cache].
 
