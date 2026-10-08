@@ -1,5 +1,5 @@
 // sc-brrr — preregistered protocol. Build: pixi run protocol
-// Operational detail lives in docs/infrastructure.typ, the challenge rules in CHALLENGE.md.
+// Operational detail lives in docs/infrastructure.typ, the challenge rules in docs/challenge/.
 #set document(title: "sc-brrr: Preregistered Protocol", author: "btraven")
 #set page(paper: "a4", margin: 2.2cm, numbering: "1")
 #set text(size: 10.5pt)
@@ -24,7 +24,7 @@
   [Date], [2026-10-07],
   [Authors], [btraven],
   [Freeze], [The protocol is frozen by tagging `prereg-v1` before the first Phase 1 run (@phases).],
-  [Companions], [`docs/infrastructure.typ` (how runs are executed, limited and instrumented; full metric definitions), `CHALLENGE.md` (submission rules). Neither is part of the preregistration.],
+  [Companions], [`docs/infrastructure.typ` (how runs are executed, limited and instrumented; full metric definitions), `docs/challenge/` (submission rules). Neither is part of the preregistration.],
 )
 
 = Study information
@@ -41,11 +41,7 @@
 
 All are tested in Phase 1, on the `x86-nvidia` profile (@hosts). Thresholds are the authors' priors.
 
-#hyp("H1")[RSC (Tier 2b) is ≥ 10× faster than scanpy (Tier 0) end to end at ≥ 500k cells.]
-#hyp("H2")[RSC (2b) is faster than BPCells (Tier 1) only above a crossover size $n^* <= 100"k"$ cells.]
-#hyp("H3")[Transfer-disciplined RSC (2b) is ≥ 1.5× faster than naive RSC (2a) at ≥ 500k cells.]
-#hyp("H4")[Approximate kNN (3a) reaches recall\@15 ≥ 0.95, stays within 0.02 kNN purity of exact kNN (2b), and changes ARI against the reference by < 0.05.]
-#hyp("H5")[Exact GPU kNN either exceeds VRAM or is ≥ 10× slower than approximate kNN at ≥ 1M cells.]
+#hyp("H1")[The GPU baseline (rapids-singlecell) is ≥ 10× faster than the CPU baseline (scanpy) end to end at ≥ 500k cells.]
 
 Everything else is exploratory (@exploratory).
 
@@ -59,7 +55,7 @@ This is a computational benchmark with a factorial design: *method × dataset si
 
 QC, normalisation and HVG selection are *not* timed. They run once, using the omni-scrna FILT/NORM/FEAT modules unchanged (scrapper QC, scanpy log1pCP10k, Pearson-residual HVGs, 2,000 genes). The result is published on Zenodo and every method reads that same file. Each method then runs, in one process:
 
-+ load the input (h5ad, zarr or BPCells, whichever the method reads)
++ load the input (h5ad, or another published format the method reads)
 + PCA, 50 components, centred, no scaling
 + kNN, k = 15, Euclidean on the PCs
 + Leiden, resolution 1.0, seed 0
@@ -70,15 +66,14 @@ The steps are not split into separate Omnibenchmark stages, because that would a
 
 #table(
   columns: (auto, auto, 1fr),
-  table.header([*Tier*], [*Method*], [*Role*]),
-  [—], [reference (scanpy, exact kNN)], [untimed and never ranked; the target for all relative fidelity metrics],
-  [0], [scanpy (defaults)], [CPU fidelity floor: scanpy as commonly run (approximate kNN via pynndescent)],
-  [1], [BPCells], [competitive CPU baseline (out-of-core, SIMD)],
-  [2a], [RSC, naive], [GPU, called as a straight scanpy port],
-  [2b], [RSC, transfer-disciplined], [GPU, one copy to the device and one back; practical ceiling],
-  [3a], [RSC + cuVS CAGRA / IVF-Flat], [approximate kNN; algorithmic ceiling],
-  [3b], [native pipelines, challenge entries], [exploratory only],
+  table.header([*Method*], [*Role*]),
+  [reference (scanpy, exact kNN)], [untimed and never ranked; the target for all relative fidelity metrics],
+  [scanpy (defaults)], [CPU baseline: scanpy as commonly run (approximate kNN via pynndescent)],
+  [rapids-singlecell (RSC)], [GPU baseline: one copy to the device and one back, exact kNN],
+  [challenge entries], [any other stack (other CPU libraries, approximate GPU kNN, native code); exploratory only],
 )
+
+Only the two baselines are confirmatory. Everything else enters as a challenge entry (`docs/challenge/`).
 
 == Host profiles <hosts>
 
@@ -92,7 +87,7 @@ The same rules apply to every method, including the baselines and the organisers
 - *No shortcuts:* no precomputed results or indices shipped with the code; no detection of the benchmark data by hash, name or shape; no reading other methods' outputs.
 - *Honest timing:* all work happens inside the measured process tree. No detached processes or daemons, and no work done before the first or after the last instrumented phase.
 
-Enforcement is partly technical (sandbox, network off, process-tree monitoring, a held-out dataset that submitters never see) and partly by review of the code. A violation removes the method from the results. Removed methods are listed with the reason. How the sandbox is set up is in `docs/infrastructure.typ`, and the rules for entries are in `CHALLENGE.md`.
+Enforcement is partly technical (sandbox, network off, process-tree monitoring, a held-out dataset that submitters never see) and partly by review of the code. A violation removes the method from the results. Removed methods are listed with the reason. How the sandbox is set up is in `docs/infrastructure.typ`, and the rules for entries are in `docs/challenge/`.
 
 == Out of scope
 
@@ -114,7 +109,7 @@ Which methods enter Phase 1 is decided by the Phase 0 results and the rules belo
 A method is included only if, on every profile it claims:
 + *It runs.* It completes all Phase 0 replicates at 10k and 50k cells within the Phase 0 budget (@failures), with no out-of-memory, timeout or crash. Failing at 100k is allowed and recorded. Failing at a small size means the method would produce no Phase 1 data.
 + *It honours the contract.* Its outputs have the declared formats, and the output cell ids match the input (`docs/infrastructure.typ`).
-+ *It is not degenerate.* At 50k cells: more than one Leiden cluster, and ARI against the reference ≥ #tbd[0.5]. This floor is deliberately loose, so that low-fidelity but working methods stay in and H4 remains testable. The challenge fidelity gate is stricter and is never used for inclusion.
++ *It is not degenerate.* At 50k cells: more than one Leiden cluster, and ARI against the reference ≥ #tbd[0.5]. This floor is deliberately loose, so that low-fidelity but working methods stay in. The challenge fidelity gate is stricter and is never used for inclusion.
 + *It is reproducible as code.* Open source, pinned to a commit, with a pinned environment that solves on the profile's platform.
 + *It plays fair* (@fairplay).
 
@@ -138,13 +133,13 @@ Method and dataset size. Host profile is a blocking factor.
 
 == Held fixed
 
-The published input; PCs = 50, k = 15, resolution = 1.0, seed = 0, float32. Approximate-kNN parameters are tuned once (100k subset, recall\@15 ≥ 0.95) and then frozen. Environments are pinned per method.
+The published input; PCs = 50, k = 15, resolution = 1.0, seed = 0, float32. Environments are pinned per method.
 
 == Outcomes
 
 - *Primary cost:* end-to-end walltime (PCA → Leiden); per-step walltime.
 - *Primary fidelity:* edge Jaccard of the kNN graph against the reference; recall\@15 against exact kNN on the method's own PCs; kNN purity against the labels; subspace distance between the method's PCs and the reference's; ARI against the reference clusters.
-- *Secondary:* peak RSS and VRAM, energy, transfer time, run-to-run ARI and edge Jaccard (RQ5), and further embedding and clustering scores.
+- *Secondary:* peak RSS and VRAM, energy, frugality (on-disk size of the method's software environment), transfer time, run-to-run ARI and edge Jaccard (RQ5), and further embedding and clustering scores.
 
 Definitions are in `docs/infrastructure.typ`. Before the freeze any metric may change. After it, only secondary metrics may be added.
 
@@ -156,15 +151,11 @@ The median and IQR of walltime over 5 runs. Speed-up is a ratio of medians, with
 
 == Decision rules
 
-- *H1, H3, H5:* supported if the lower bound of the CI is above the threshold at every size covered.
-- *H2:* $n^*$ is the smallest size at which the CI of the RSC/BPCells walltime ratio lies entirely below 1. Supported if $n^* <= 100"k"$.
-- *H4:* supported if every condition holds at every size.
-
-There is no multiplicity correction. Every hypothesis is reported.
+- *H1:* supported if the lower bound of the CI is above the threshold at every size covered.
 
 == Exploratory <exploratory>
 
-Challenge entries; energy-to-solution; the Leiden resolution sensitivity check; cross-profile comparison through log-log scaling slopes (later, once ≥ 5 sizes spanning 2 orders of magnitude are available).
+Challenge entries, including what earlier drafts made hypotheses of: the CPU/GPU crossover against a competitive CPU stack (e.g. BPCells), naive vs transfer-disciplined GPU use, and approximate vs exact GPU kNN (recall, fidelity, VRAM at ≥ 1M cells); energy-to-solution; the Leiden resolution sensitivity check; cross-profile comparison through log-log scaling slopes (later, once ≥ 5 sizes spanning 2 orders of magnitude are available).
 
 = Deviations log
 

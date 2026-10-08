@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this module in your publication, please cite as below."
+type: software
+title: "CHANGE_ME: method name"
+abstract: "CHANGE_ME: one line on what is fast about it"
+authors:
+  - family-names: "CHANGE_ME"
+    given-names: "CHANGE_ME"
+version: "0.1.0"
+license: MIT
+repository-code: "CHANGE_ME: https://github.com/<org>/<repo>"

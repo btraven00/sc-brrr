@@ -4,3 +4,4 @@ data/
 out/
 docs/*.pdf
 runs/
+__pycache__/

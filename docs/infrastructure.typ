@@ -18,15 +18,12 @@
 = Methods in detail
 
 #table(
-  columns: (auto, auto, 1fr, auto),
-  table.header([*Tier*], [*Module id*], [*Stack*], [*Capability*]),
-  [—], [`reference`], [scanpy, kNN with `transformer="sklearn"` (exact, see @refknn). Untimed, generous runtime, seed 0 only; the target of all relative metrics], [—],
-  [0], [`scanpy`], [scanpy defaults: kNN via pynndescent (approximate above 4,096 cells)], [—],
-  [1], [`bpcells`], [BPCells (R, C++ backend: bit-packing, SIMD, mmap)], [—],
-  [2a], [`rsc_naive`], [rapids-singlecell called as a straight scanpy port, with transfers left to library defaults], [`cuda`],
-  [2b], [`rsc`], [rapids-singlecell: `anndata_to_GPU` once → sparse covariance-eigendecomposition PCA (no densification) → kNN → Leiden in VRAM → `anndata_to_CPU` once], [`cuda`],
-  [3a], [`rsc_cagra`, `rsc_ivfflat`], [as 2b, with kNN through cuVS approximate search], [`cuda`],
-  [3b], [_submissions_], [native C++/Rust (CUDA or wgpu), Metal/MLX, …], [any],
+  columns: (auto, 1fr, auto),
+  table.header([*Module id*], [*Stack*], [*Capability*]),
+  [`reference`], [scanpy, kNN with `transformer="sklearn"` (exact, see @refknn). Untimed, generous runtime, seed 0 only; the target of all relative metrics], [—],
+  [`scanpy`], [CPU baseline. scanpy defaults: kNN via pynndescent (approximate above 4,096 cells)], [—],
+  [`rsc`], [GPU baseline. rapids-singlecell: `anndata_to_GPU` once → sparse covariance-eigendecomposition PCA (no densification) → kNN → Leiden in VRAM → `anndata_to_CPU` once], [`cuda`],
+  [_submissions_], [everything else: other CPU stacks (e.g. BPCells), approximate GPU kNN, native C++/Rust (CUDA or wgpu), Metal/MLX, …], [any],
 )
 
 GPU methods declare `requires_capabilities: [cuda]` or `[metal]` and are pruned on hosts run without the matching `--with-capability`. The same plan runs unchanged on every profile and on CPU-only CI.
@@ -54,7 +51,7 @@ GPU methods declare `requires_capabilities: [cuda]` or `[metal]` and are pruned 
   table.header([*Stage*], [*Wiring*], [*Outputs*]),
   [`data`], [initial; `provides: [size]`], [`{name}.h5ad`, the published prep output, fetched by `omni-data` (hapiq) with a sha256 check. One module per size.],
   [`pipeline`], [`inputs: [data_h5ad]`], [omni-scrna formats: `{name}_embedding.tsv`, `{name}_neighbors.h5` (distance CSR plus `/connectivities`), `{name}_clusters.tsv`; also `obkit-events.jsonl` and `denet.jsonl`.],
-  [`metrics`], [`gather`, `group_by: data`], [`{data}_metrics.tsv`, one row per method.],
+  [`metrics`], [`gather`, `group_by: data`], [`{data}_metrics.jsonl`: metric records (`specs/README.md`), gathered per run by `collect.py`.],
   [`report`], [`gather`, global], [`scoreboard.tsv`, `scoreboard.md`, `report.html`.],
 )
 
@@ -69,7 +66,7 @@ Fidelity against the reference is computed in a gather, because only there does 
   [DATA], [`cxg-adapt` (`prep/adapt.py`): CELLxGENE layout → omni-scrna DATA contract (counts from `raw.X`, symbols as var index, `celltype.l2` labels, `donor_id` batch, `Doublet` dropped)],
   [FILT, NORM, FEAT], [omni-scrna `split-stages-plan` \@ `dfc8ee9`, unchanged: `fi-scrapper` → `nr-scanpy` (`log1pCP10k`) → `fe-scanpy` (`pearson_residuals`, 2,000). Only the output templates change, from `{dataset}_*` to `{name}_*`, because api 0.7.0 passes the module id as `--name`.],
   [EXPORT], [`ladder` (`prep/export.py`): one h5ad per size, nested stratified subsampling, seed 0],
-  [CONVERT], [#tbd[h5ad (native), AnnData zarr, BPCells matrix dir; directory formats archived per size]],
+  [CONVERT], [#tbd[h5ad (native), AnnData zarr, other formats only if entries ask for them; directory formats archived per size]],
 )
 
 Every size in every format, with its sha256 and the prep run metadata, goes to Zenodo (DOI) and is mirrored on Hugging Face. Load time is reported separately from the PCA → Leiden span.
@@ -144,7 +141,7 @@ pixi run -e ob python runner.py benchmark.yaml --filter filters/scanpy-10k.yaml 
 + *Render.* Data `file://` URIs become `file:///data/<name>`, and the real file (symlinks resolved) is mounted there. Modules from this repo point at the read-only checkout, because the repo is private.
 + *Setup* (network on, untimed): `ob run … --dry` clones, pins and writes `out/Snakefile`; `ob run … -- --conda-create-envs-only --conda-prefix /conda` builds the envs.
 + *Run* (`--network none`): every rule in the Snakefile runs in *its own container*, with that rule's `resources:` as the cap: `--cpus <cores> --memory <mem_mb> --memory-swap <mem_mb> --timeout <runtime>`, cpuset if set, `snakemake --allowed-rules <rule>`. Jobs run one at a time, in the Snakefile's order, which is topological. So the limits apply to a single run, not to the set of replicates, and a slow run cannot spend another's time. `term_grace_s` (10 s) before the hard limit, the runner sends SIGTERM from the host to every process in the job's cgroup, so a module can flush and exit; podman's `--timeout` then kills whatever is left. The job is recorded as timed out either way (`sigterm` in the manifest). `podman stop` and `--init` don't do this: they signal only PID 1, snakemake, which waits for its running job instead of passing the signal on (tested).
-+ *Results* (host side): `runs/<id>/results/manifest.json` with versions (repo commit, image id, ob version), the limits, sha256 of the plan, data and every output, and per job: exit code, OOM kill, timeout, wall time, cgroup peaks and the denet summary. Also copied: the metrics tables and each run's `parameters.json`, `obkit-events.jsonl`, `denet.jsonl`. Nothing in `results/` is written by code inside a container.
++ *Results* (host side): `runs/<id>/results/manifest.json` with versions (repo commit, image id, ob version), the limits, sha256 of the plan, data and every output, and the size of every conda env the plan uses (frugality, @metrics), and per job: its env, exit code, OOM kill, timeout, wall time, cgroup peaks and the denet summary. Also copied: the metrics tables and each run's `parameters.json`, `obkit-events.jsonl`, `denet.jsonl`. Nothing in `results/` is written by code inside a container.
 
 Mounts: the checkout read-only at `/bench`, with `runs/` and `prep/out/` hidden behind an empty read-only directory (other runs' outputs). Not `--tmpfs`: together with `--memory`, crun fails to start the container ("read from the init process"). Only `out/` is writable.
 
@@ -154,7 +151,7 @@ Mounts: the checkout read-only at `/bench`, with `runs/` and `prep/out/` hidden 
 
 Both steps set `XDG_CACHE_HOME=<out>/.cache`, so ob's git cache lives in the `out/` volume and survives from setup to run. ob 0.7.0 deletes that cache when a fetch fails, which is every fetch offline; the run step needs ob with omnibenchmark/omnibenchmark\#395, which falls back to the cached copy. (The job containers call snakemake directly and don't need it; setup does.)
 
-Measured on the laptop, 10k, scanpy, 8 cores, 2026-10-08: the reference + 11 scanpy runs + metrics, 14/14 jobs. A scanpy run is ~24 s of container wall time: ~3 s timed (PCA + kNN + Leiden), ~16 s warm-up (mostly compiling pynndescent's code), ~5 s container, snakemake, conda and load. All 11 runs take 4.5 min, so the 5 min budget per method holds the full set of replicates and seeds at 10k, barely. `rsc` (tier 2b, RTX 2000 Ada, same date) runs 13/13 jobs; a run is ~18 s of wall time: ~0.8 s timed (PCA 0.49, kNN 0.03, Leiden 0.32 s), ~12 s warm-up (CUDA/cuML initialisation, mostly in `warmup:pca` 6.5 s and `warmup:nng` 4.8 s). All 11 runs take 3.4 min. n_clusters 20 in 10/11 runs (19 once); scanpy gives 19–22 and the reference 20.
+Measured on the laptop, 10k, scanpy, 8 cores, 2026-10-08: the reference + 11 scanpy runs + metrics, 14/14 jobs. A scanpy run is ~24 s of container wall time: ~3 s timed (PCA + kNN + Leiden), ~16 s warm-up (mostly compiling pynndescent's code), ~5 s container, snakemake, conda and load. All 11 runs take 4.5 min, so the 5 min budget per method holds the full set of replicates and seeds at 10k, barely. `rsc` (GPU baseline, RTX 2000 Ada, same date) runs 13/13 jobs; a run is ~18 s of wall time: ~0.8 s timed (PCA 0.49, kNN 0.03, Leiden 0.32 s), ~12 s warm-up (CUDA/cuML initialisation, mostly in `warmup:pca` 6.5 s and `warmup:nng` 4.8 s). All 11 runs take 3.4 min. n_clusters 20 in 10/11 runs (19 once); scanpy gives 19–22 and the reference 20.
 
 The baseline and the candidate run in *separate* runner invocations, each restricted to its own slice with `--filter`. `apple-silicon` can't use this (podman runs in a VM there and can't reach Metal), so it keeps its native setup.
 
@@ -258,6 +255,7 @@ Three comparison targets: *ref* (the `scanpy` output at the same size), *lab* (t
   [Cluster count], [ref], [Difference in the number of clusters at resolution 1.0.],
   [Run-to-run ARI, edge Jaccard], [—], [Pairwise between replicates (10 pairs per set), for same-seed and different-seed sets.],
   [Cell set (sanity)], [ref], [Output cell ids equal the input ids, in the same order. A mismatch is a contract failure.],
+  [Frugality], [—], [On-disk size of the method's conda environment as built in setup (apparent size, hardlinks counted once), with its conda and pip package counts. Measured by the runner on the host (`envs` in `manifest.json`), so not reported by the module. It is what installing the method costs, not what it adds to the scoring host, where envs share a hardlinked package cache. Reported, never ranked. At 10k (2026-10-08): `scanpy` 1.1 GB (149 conda, 1 pip), `rsc` 5.9 GB (29 conda, 137 pip; mostly CUDA libraries).],
 )
 
 == Reference kNN must be exact <refknn>

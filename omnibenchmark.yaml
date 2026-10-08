@@ -1,6 +1,9 @@
-# sc-brrr serves its own prep modules (prep/benchmark.yaml); the timed methods live in their own repos.
+# sc-brrr serves its own prep modules (prep/benchmark.yaml), the baselines' entrypoints and the metrics.
 entrypoints:
   default: prep/adapt.py
   adapt: prep/adapt.py
   export: prep/export.py
+  fuse: brrr/fuse.sh                 # an omni-scrna module's stage scripts, unchanged, in one process
+  reference: baselines/reference.sh  # the exact-kNN reference, through the brrr driver
   n-clusters: metrics/clusters.py
+  contract: metrics/contract.py

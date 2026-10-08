@@ -1,0 +1,30 @@
+# sc-brrr artifact types: what each output id of the `pipeline` stage must hold.
+# Owned by sc-brrr, written against the omni-scrna formats but not part of them.
+# Checked on every pipeline run, and every rep<r>/ in it, by metrics/contract.py.
+#
+#   n            cells in the run's input h5ad; every artifact lists them in input order
+#   {param: p}   a value from the run's parameters.json (any key ending in p, so
+#                n_components and pca_n_components both match)
+version: 1
+types:
+  embedding_tsv:
+    path: "{name}_embedding.tsv"
+    kind: table                 # TSV, header row, n data rows
+    id_column: cell_id
+    columns: {prefix: PC, count: {param: n_components}}   # PC1 .. PC<n_components>
+    values: [finite]
+
+  neighbors_h5:
+    path: "{name}_neighbors.h5"
+    kind: graph                 # HDF5: an id dataset plus CSR groups (data, indices, indptr), each n x n
+    ids: cell_ids
+    matrices: {distances: /, connectivities: /connectivities}
+    min_degree: {param: n_neighbors, offset: -1}           # k - 1 neighbours per cell, self excluded
+    values: [finite, nonnegative]
+
+  clusters_tsv:
+    path: "{name}_clusters.tsv"
+    kind: table
+    id_column: cell_id
+    columns: [cluster]
+    values: [nonempty]

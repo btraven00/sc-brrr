@@ -1,0 +1,319 @@
+# sc-brrr metric catalog: every metric the benchmark reports, in one place.
+# docs/infrastructure.typ (Metric definitions) and the scoreboard should agree with this file.
+#
+#   id                stable column id on the scoreboard; never reused
+#   group             cost | fidelity | resources | reproducibility | hygiene
+#   vs                what it is measured against: ref (the exact-kNN reference run),
+#                     lab (author cell labels), self (the method's own data), none
+#   primary           a primary outcome of the protocol (fixed at the freeze)
+#   higher_is_better  true / false; null for descriptive values with no better direction
+#   formula           how it is computed; notation below
+#   source            who measures it: runner (host side, trusted), driver (in the
+#                     module's process, reported), denet (traced inside the container, reported),
+#                     metrics (a module of the metrics stage)
+#   status            implemented | planned
+#
+# Notation: n cells; E_a the undirected edge set of method a's kNN graph (union of
+# directed edges, no self-loops); N_a(i) cell i's neighbour set; U_a the top-50 PC
+# subspace; C_a cluster labels; y author labels; t a duration in seconds.
+version: 1
+metrics:
+  # --- cost ------------------------------------------------------------------
+  - id: walltime_s
+    name: End-to-end walltime
+    group: cost
+    vs: none
+    primary: true
+    higher_is_better: false
+    unit: s
+    formula: "duration of the driver's `replicate` phase (PCA -> kNN -> Leiden); median over same-seed replicates"
+    source: driver
+    status: implemented
+  - id: step_walltime_s
+    name: Per-step walltime (pca, knn, cluster)
+    group: cost
+    vs: none
+    primary: true
+    higher_is_better: false
+    unit: s
+    formula: "duration of each step phase inside `replicate`; median over replicates"
+    source: driver
+    status: implemented
+  - id: speedup
+    name: Speed-up against the same-job baseline
+    group: cost
+    vs: none
+    primary: false
+    higher_is_better: true
+    unit: ratio
+    formula: "median(t_baseline) / median(t_method), 95% bootstrap CI; baseline = CPU baseline of the same scoring job"
+    source: metrics
+    status: planned
+  - id: job_walltime_s
+    name: Job walltime (container)
+    group: cost
+    vs: none
+    primary: false
+    higher_is_better: false
+    unit: s
+    formula: "wall time of the job's container, start to exit; bounds the sum of the module's phases from outside"
+    source: runner
+    status: implemented
+  - id: transfer_bytes
+    name: Host <-> GPU transfer
+    group: cost
+    vs: none
+    primary: false
+    higher_is_better: false
+    unit: bytes
+    formula: "NVML PCIe counters (fields 197/198) read at phase boundaries, per direction; exclusive GPU required"
+    source: driver
+    status: planned
+
+  # --- fidelity ----------------------------------------------------------------
+  - id: edge_jaccard
+    name: Edge Jaccard
+    group: fidelity
+    vs: ref
+    primary: true
+    higher_is_better: true
+    unit: "[0, 1]"
+    formula: "|E_a ∩ E_ref| / |E_a ∪ E_ref|"
+    source: metrics
+    status: planned
+  - id: neighbour_jaccard
+    name: Neighbour Jaccard
+    group: fidelity
+    vs: ref
+    primary: false
+    higher_is_better: true
+    unit: "[0, 1]"
+    formula: "mean over i of |N_a(i) ∩ N_ref(i)| / |N_a(i) ∪ N_ref(i)|"
+    source: metrics
+    status: planned
+  - id: recall_at_15
+    name: Recall@15
+    group: fidelity
+    vs: self
+    primary: true
+    higher_is_better: true
+    unit: "[0, 1]"
+    formula: "mean over seeded query cells q of |N_a(q) ∩ exact top-15 of q on the method's own PCs| / 15; isolates search error from PCA error"
+    source: metrics
+    status: planned
+  - id: knn_purity
+    name: kNN purity
+    group: fidelity
+    vs: lab
+    primary: true
+    higher_is_better: true
+    unit: "[0, 1]"
+    formula: "mean over i of |{j ∈ N_a(i) : y_j = y_i}| / |N_a(i)|"
+    source: metrics
+    status: planned
+  - id: subspace_distance
+    name: Subspace distance
+    group: fidelity
+    vs: ref
+    primary: true
+    higher_is_better: false
+    unit: rad
+    formula: "‖θ‖₂, θ the principal angles between U_a and U_ref (Grassmann); ignores sign flips and rotations among near-equal PCs"
+    source: metrics
+    status: planned
+  - id: procrustes_disparity
+    name: Procrustes disparity
+    group: fidelity
+    vs: ref
+    primary: false
+    higher_is_better: false
+    unit: "[0, 1]"
+    formula: "residual sum of squares after orthogonal alignment of the embedding onto the reference PCs"
+    source: metrics
+    status: planned
+  - id: asw_label
+    name: Label silhouette (ASW)
+    group: fidelity
+    vs: lab
+    primary: false
+    higher_is_better: true
+    unit: "[0, 1]"
+    formula: "silhouette of y on the embedding, rescaled (s + 1) / 2 (scib-metrics)"
+    source: metrics
+    status: planned
+  - id: clisi
+    name: Cell-type LISI
+    group: fidelity
+    vs: lab
+    primary: false
+    higher_is_better: true
+    unit: "[0, 1]"
+    formula: "cell-type LISI on the kNN graph, rescaled so 1 = pure neighbourhoods (scib-metrics)"
+    source: metrics
+    status: planned
+  - id: ari_ref
+    name: ARI against the reference
+    group: fidelity
+    vs: ref
+    primary: true
+    higher_is_better: true
+    unit: "[-1, 1]"
+    formula: "adjusted Rand index of C_a and C_ref"
+    source: metrics
+    status: planned
+  - id: ari_lab
+    name: ARI against the labels
+    group: fidelity
+    vs: lab
+    primary: false
+    higher_is_better: true
+    unit: "[-1, 1]"
+    formula: "adjusted Rand index of C_a and y"
+    source: metrics
+    status: planned
+  - id: nmi_lab
+    name: NMI against the labels
+    group: fidelity
+    vs: lab
+    primary: false
+    higher_is_better: true
+    unit: "[0, 1]"
+    formula: "normalised mutual information of C_a and y (arithmetic mean normalisation)"
+    source: metrics
+    status: planned
+  - id: n_clusters
+    name: Cluster count
+    group: fidelity
+    vs: none
+    primary: false
+    higher_is_better: null
+    unit: count
+    formula: "|unique(C_a)| at resolution 1.0"
+    source: metrics
+    status: implemented
+  - id: cluster_count_error
+    name: Cluster count error
+    group: fidelity
+    vs: ref
+    primary: false
+    higher_is_better: false
+    unit: count
+    formula: "| |unique(C_a)| - |unique(C_ref)| |"
+    source: metrics
+    status: planned
+
+  # --- resources -----------------------------------------------------------------
+  - id: mem_peak_mb
+    name: Peak memory (cgroup)
+    group: resources
+    vs: none
+    primary: false
+    higher_is_better: false
+    unit: MB
+    formula: "the job container's cgroup memory.peak, read from the host"
+    source: runner
+    status: implemented
+  - id: rss_peak_mb
+    name: Peak RSS (process tree)
+    group: resources
+    vs: none
+    primary: false
+    higher_is_better: false
+    unit: MB
+    formula: "max over denet samples of the summed RSS of the traced process tree; cross-checked against mem_peak_mb"
+    source: denet
+    status: implemented
+  - id: vram_peak_mb
+    name: Peak VRAM
+    group: resources
+    vs: none
+    primary: false
+    higher_is_better: false
+    unit: MB
+    formula: "max over NVML samples of device memory in use; exclusive GPU required"
+    source: denet
+    status: implemented
+  - id: cpu_s
+    name: CPU time (cgroup)
+    group: resources
+    vs: none
+    primary: false
+    higher_is_better: false
+    unit: s
+    formula: "the job container's cgroup cpu.stat usage_usec / 1e6"
+    source: runner
+    status: implemented
+  - id: energy_j
+    name: Energy to solution
+    group: resources
+    vs: none
+    primary: false
+    higher_is_better: false
+    unit: J
+    formula: "integral of GPU (NVML) + CPU (RAPL) power over the replicate phase"
+    source: runner
+    status: planned
+  - id: frugality_mb
+    name: Frugality (environment size)
+    group: resources
+    vs: none
+    primary: false
+    higher_is_better: false
+    unit: MB
+    formula: "on-disk size of the method's conda env as built in setup (du -sb: apparent size, hardlinks once); conda and pip package counts alongside"
+    source: runner
+    status: implemented
+
+  # --- reproducibility -------------------------------------------------------------
+  - id: rerun_ari_same_seed
+    name: Run-to-run ARI, same seed
+    group: reproducibility
+    vs: self
+    primary: false
+    higher_is_better: true
+    unit: "[-1, 1]"
+    formula: "mean ARI over the 10 pairs of 5 same-seed replicates"
+    source: metrics
+    status: planned
+  - id: rerun_ari_seeds
+    name: Run-to-run ARI, different seeds
+    group: reproducibility
+    vs: self
+    primary: false
+    higher_is_better: true
+    unit: "[-1, 1]"
+    formula: "mean ARI over the 10 pairs of the seed 1..5 replicates"
+    source: metrics
+    status: planned
+  - id: rerun_edge_jaccard
+    name: Run-to-run edge Jaccard
+    group: reproducibility
+    vs: self
+    primary: false
+    higher_is_better: true
+    unit: "[0, 1]"
+    formula: "mean edge Jaccard over replicate pairs, same-seed and different-seed sets separately"
+    source: metrics
+    status: planned
+
+  # --- hygiene -------------------------------------------------------------------
+  - id: contract_ok
+    name: Output contract
+    group: hygiene
+    vs: none
+    primary: false
+    higher_is_better: true
+    unit: bool
+    formula: "every artifact of every replicate passes specs/types.yaml (ids and order, shapes, CSR validity, finiteness, minimum degree); false = contract failure"
+    source: metrics
+    status: implemented
+  - id: memory_growth_mb
+    name: Memory growth per replicate
+    group: hygiene
+    vs: none
+    primary: false
+    higher_is_better: false
+    unit: MB / replicate
+    formula: "mean of RSS deltas between consecutive replicates (first delta dropped); warning when mean > 2 standard errors"
+    source: runner
+    status: implemented

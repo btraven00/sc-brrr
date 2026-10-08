@@ -1,0 +1,3 @@
+# OmniBenchmark Module Configuration
+entrypoints:
+  default: method.py

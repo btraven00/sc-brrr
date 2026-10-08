@@ -5,6 +5,8 @@
 
 1. Render: data `file://` URIs -> /data/<basename> (the real file, symlinks resolved, is
    mounted there); module repos pointing at this (private) repo -> the read-only checkout.
+   Fused modules (`module: <url>@<commit>`, brrr/brrr/fuse.py) are fetched here, on the host,
+   into runs/.fuse-src, and mounted read-only at /fuse-src.
 2. Setup, network on: `ob run --dry` (clone, pin, write the Snakefile), then build the
    conda envs. ob's git cache lives in out/.cache so it survives to step 3.
 3. Run, --network none: each Snakefile rule in its own container, capped by that rule's
@@ -62,9 +64,29 @@ def render(plan, mounts):
     return plan
 
 
+def fetch_fused(plan, cache):
+    """Every `module: <url>@<commit>` a plan's parameters name, fetched once into
+    cache/<repo>-<commit> (the fuser's lookup name), while the host still has network."""
+    for st in plan["stages"]:
+        for m in st.get("modules", []):
+            for p in m.get("parameters") or []:
+                url, _, sha = str(p.get("module", "")).rpartition("@")
+                if not url:
+                    continue
+                d = cache / f"{url.rstrip('/').removesuffix('.git').rsplit('/', 1)[-1]}-{sha}"
+                if not d.is_dir():
+                    tmp = d.with_name(d.name + ".tmp")
+                    shutil.rmtree(tmp, ignore_errors=True)
+                    for cmd in (["git", "init", "-q", str(tmp)], ["git", "-C", str(tmp), "fetch", "-q", "--depth", "1", url, sha],
+                                ["git", "-C", str(tmp), "checkout", "-q", "FETCH_HEAD"]):
+                        subprocess.run(cmd, check=True)
+                    tmp.rename(d)
+
+
 def rules(snakefile):
     """(rule, (stage, module), resources) in file order; ob writes rules topologically,
-    each under a `# Stage: S, Module: M` comment, and `all` last."""
+    each under a `# Stage: S, Module: M` comment, and `all` last. resources also gets
+    `conda`, the rule's env file (relative to the Snakefile)."""
     out, name, mod = [], None, None
     for line in snakefile.read_text().splitlines():
         if m := re.match(r"# Stage: (\S+), Module: (\S+)", line):
@@ -75,6 +97,8 @@ def rules(snakefile):
                 out.append((name, mod, {}))
         elif name and out and out[-1][0] == name and (m := re.match(r"\s+(cores|mem_mb|runtime)=(\d+)", line)):
             out[-1][2][m.group(1)] = int(m.group(2))
+        elif name and out and out[-1][0] == name and (m := re.match(r'\s+conda:\s*"([^"]+)"', line)):
+            out[-1][2]["conda"] = m.group(1)
     return out
 
 
@@ -147,10 +171,10 @@ def creep(rss, cap_mb, what="memory"):
     return out
 
 
-def diagnostics(jobs):
+def diagnostics(jobs, envs):
     """End-of-run table: per job how it ended and how close it came to its limits, then warnings.
     Also stored per job as `warnings` in the manifest."""
-    print(f"\n{'job':<44} {'end':<14} {'wall':>9} {'mem peak / cap':>18} {'denet':>8} {'growth/rep':>11}")
+    print(f"\n{'job':<44} {'end':<14} {'wall':>9} {'mem peak / cap':>18} {'denet':>8} {'growth/rep':>11} {'env':>8}")
     for j in jobs:
         w = j["warnings"] = []
         reason = "OOM" if j["oom_killed"] else "timeout" if j["timed_out"] else "ok" if not j["exit"] else f"exit {j['exit']}"
@@ -167,11 +191,30 @@ def diagnostics(jobs):
                 w.append(x["warning"])
         growth = f"{c['mb_per_replicate']:+.1f} MB" if c else "-"
         short = re.sub(r"^data_\w+?_[0-9a-f]{8}_(?=\w)", "", j["rule"])  # drop the dataset prefix
+        env = (envs.get(j.get("env")) or {}).get("size_mb")
         print(f"{short[:44]:<44} {reason:<14} {j['wall_s']:>8.1f}s {peak:>8.0f} / {j['mem_mb']:<6} MB "
-              f"{dn.get('rss_peak_mb', 0):>6.0f}MB {growth:>11}")
+              f"{dn.get('rss_peak_mb', 0):>6.0f}MB {growth:>11} {'-' if not env else f'{env / 1024:.1f}GB' if env >= 1024 else f'{env:.0f}MB':>8}")
     for j in jobs:
         for x in j["warnings"]:
             print(f"WARNING {j['rule']}: {x}")
+
+
+def env_sizes(out, conda):
+    """Frugality: on-disk size of every conda env the plan uses, keyed by env file. Snakemake
+    keeps a byte-identical copy of the env file next to the env (<hash>_.yaml), so the match
+    is by content. Apparent size, hardlinks counted once: what installing the env costs, not
+    what it adds to this host (files are hardlinked from the shared pkgs cache)."""
+    copies = {f.read_bytes(): f.with_suffix("") for f in conda.glob("*_.yaml")}
+    sizes = {}
+    for f in sorted((out / ".envs").glob("*.yaml")):
+        if (d := copies.get(f.read_bytes())) and d.is_dir():
+            sizes[str(f.relative_to(out))] = {
+                "size_mb": round(int(sh("du", "-sb", str(d)).stdout.split()[0]) / 2**20, 1),
+                "conda_packages": len(list((d / "conda-meta").glob("*.json"))),
+                "pip_packages": sum((i / "INSTALLER").read_text().strip() == "pip"
+                                    for i in d.glob("lib/python*/site-packages/*.dist-info") if (i / "INSTALLER").exists()),
+                "prefix": d.name}
+    return sizes
 
 
 def denet_summary(path):
@@ -222,6 +265,10 @@ def main():
         base += ["-v", f"{run / 'empty'}:/bench/{d}:ro"]
     for host, ctr in mounts:
         base += ["-v", f"{host}:{ctr}:ro"]
+    fused = (REPO / "runs" / ".fuse-src").resolve()
+    fused.mkdir(parents=True, exist_ok=True)
+    fetch_fused(plan, fused)
+    base += ["-v", f"{fused}:/fuse-src:ro", "-e", "BRRR_MODULES=/fuse-src"]
     # conda envs shared across runs, keyed by env-file hash; writable only during setup.
     # ponytail: one cache for every entry; per-entry caches once third-party setups run here
     conda = (REPO / lim.get("conda_cache", "runs/.conda")).resolve()
@@ -263,13 +310,18 @@ def main():
                                                        "--conda-prefix", "/conda"])
     if manifest["setup_exit"]:
         sys.exit(f"setup failed, see {run / 'runner.log'}")
+    manifest["envs"] = env_sizes(out, conda)
 
     for rule, mod, r in rules(out / "Snakefile"):
         cores = r.get("cores", 1)
         mem = r.get("mem_mb", lim["default_mem_mb"])
         runtime = r.get("runtime", lim["default_runtime"])
-        name = f"scbrrr-{a.id}-{rule}"[:120]
-        cmd = [x for x in base if x != "--rm"] + conda_ro + [
+        name = f"brrr-{a.id}-{rule}"[:120]
+        # every thread pool sized to the job's cores, so they don't oversubscribe the cap
+        threads = [x for v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMBA_NUM_THREADS",
+                               "POLARS_MAX_THREADS", "RAYON_NUM_THREADS", "NUMEXPR_MAX_THREADS")
+                   for x in ("-e", f"{v}={cores}")]
+        cmd = [x for x in base if x != "--rm"] + conda_ro + threads + [
             "--name", name, "--network", "none", "-w", "/bench/out",
             "--cpus", str(cores), "--memory", f"{mem}m", "--memory-swap", f"{mem}m",
             "--timeout", str(runtime * 60)]
@@ -291,7 +343,7 @@ def main():
         timed_out = rc != 0 and (termed or wall >= runtime * 60)
         print("ok" if rc == 0 else f"FAILED (exit {rc}{', OOM' if oom else ''}{', timeout' if timed_out else ''})")
         manifest["jobs"].append({"rule": rule, "cores": cores, "mem_mb": mem, "runtime_min": runtime,
-                                 "capabilities": needs.get(mod, []), "exit": rc, "oom_killed": oom, "timed_out": timed_out, "sigterm": termed, "wall_s": wall,
+                                 "capabilities": needs.get(mod, []), "env": r.get("conda"), "exit": rc, "oom_killed": oom, "timed_out": timed_out, "sigterm": termed, "wall_s": wall,
                                  "cgroup": cgroup})
 
     files = sorted(p for p in out.rglob("*") if p.is_file() and not p.is_symlink()
@@ -315,7 +367,7 @@ def main():
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(p, dst)
     manifest["ended"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
-    diagnostics(manifest["jobs"])
+    diagnostics(manifest["jobs"], manifest["envs"])
     (res / "manifest.json").write_text(json.dumps(manifest, indent=1))
     failed = [j["rule"] for j in manifest["jobs"] if j["exit"]]
     print(f"{len(manifest['jobs']) - len(failed)}/{len(manifest['jobs'])} jobs ok -> {res}")

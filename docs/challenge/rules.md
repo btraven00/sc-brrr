@@ -1,6 +1,6 @@
 # sc-brrr challenge rules
 
-Rules for third-party entries. The study itself is defined in `protocol.typ`, and the execution details are in `docs/infrastructure.typ`.
+Rules for third-party entries. How to write a module is in [module.md](module.md). The study itself is defined in `protocol.typ`, and the execution details are in `docs/infrastructure.typ`.
 
 ## Submitting
 
@@ -18,8 +18,8 @@ requires_capabilities: [cuda]         # optional: cuda | metal
 Your module must:
 
 - pass `ob validate module`;
-- write the `pipeline` outputs (embedding TSV, neighbours H5, clusters TSV) for the published input;
-- accept `--random_seed`;
+- be either an omni-scrna module (three stage scripts, run unchanged by the sc-brrr fuser) or a single pipeline function run by the sc-brrr driver; see [module.md](module.md);
+- have exactly one software environment, which includes the driver;
 - need no network access at run time.
 
 The pipeline parameters are fixed by the organisers. Submissions cannot set their own.
@@ -45,6 +45,7 @@ Ids and names must match `[a-z0-9_-]+`.
 
   Entries that miss the gate are listed as `below gate`.
 - **Rank:** median end-to-end walltime among entries that pass the gate, with peak RSS as the tiebreaker. Failed entries are listed last, with the cause.
+- **Frugality** (shown, not ranked): the on-disk size of your conda environment. A 6 GB environment for a 3 s method is worth knowing about.
 
 ## Scoreboard
 
