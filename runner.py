@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import signal
+import statistics
 import subprocess
 import sys
 import time
@@ -107,9 +108,6 @@ def watch(cmd, name, log, term_after=None):
     return proc.returncode, {"mem_peak_mb": round(peak / 2**20, 1), "cpu_s": round(cpu_us / 1e6, 1)}, termed
 
 
-CREEP = 0.10  # ponytail: warn when the last replicate's RSS is >10 % above the first; threshold TBD
-
-
 def events_summary(path):
     """What the module says about itself (obkit-events.jsonl, written inside the container, so
     reported, not measured): why it quit, and RSS at the end of each in-process replicate."""
@@ -122,10 +120,49 @@ def events_summary(path):
             exit_ = e.get("attrs")
         elif e["event"] == "replicate" and (r := e.get("attrs", {}).get("rss_mb")) is not None:
             rss.append(r)
-    out = {"exit": exit_, "replicate_rss_mb": rss}
-    if len(rss) > 1 and rss[-1] > rss[0] * (1 + CREEP):
-        out["warning"] = f"memory creep: RSS {rss[0]} -> {rss[-1]} MB over {len(rss)} replicates"
+    return {"exit": exit_, "replicate_rss_mb": rss}
+
+
+def creep(rss, cap_mb):
+    """RSS growth per replicate, from the deltas between consecutive replicates. The first delta is
+    dropped (allocations settling after the warm-up: +70 MB for scanpy at 10k, then flat ~10 MB).
+    Warns when the growth is consistent (mean > 2 standard errors) and gives the replicates left
+    before the cap at that rate. ponytail: needs >= 3 deltas; fewer replicates, no verdict."""
+    d = [b - a for a, b in zip(rss[1:], rss[2:])]
+    if len(d) < 3:
+        return None
+    mean, sd = statistics.mean(d), statistics.stdev(d)
+    out = {"mb_per_replicate": round(mean, 1), "sd": round(sd, 1), "n": len(d)}
+    if mean > 2 * sd / len(d) ** 0.5:
+        left = int((cap_mb - rss[-1]) / mean)
+        out["warning"] = f"memory grows {mean:.1f} ± {sd:.1f} MB per replicate; cap ({cap_mb} MB) in ~{left} more"
     return out
+
+
+def diagnostics(jobs):
+    """End-of-run table: per job how it ended and how close it came to its limits, then warnings.
+    Also stored per job as `warnings` in the manifest."""
+    print(f"\n{'job':<44} {'end':<14} {'wall':>9} {'mem peak / cap':>18} {'denet':>8} {'growth/rep':>11}")
+    for j in jobs:
+        w = j["warnings"] = []
+        reason = "OOM" if j["oom_killed"] else "timeout" if j["timed_out"] else "ok" if not j["exit"] else f"exit {j['exit']}"
+        if (m := (j.get("module") or {}).get("exit")) and m.get("reason") not in (None, "ok"):
+            reason += f" ({m['reason']}, {m.get('done')} reps)"
+        cg, dn, c = j.get("cgroup") or {}, j.get("denet") or {}, j.get("creep") or {}
+        peak = cg.get("mem_peak_mb", 0)
+        if peak > 0.8 * j["mem_mb"]:
+            w.append(f"memory peak {peak:.0f} MB is {peak / j['mem_mb']:.0%} of the cap")
+        if j["wall_s"] > 0.8 * j["runtime_min"] * 60 and not j["timed_out"]:
+            w.append(f"wall time {j['wall_s']:.0f} s is {j['wall_s'] / (j['runtime_min'] * 60):.0%} of the limit")
+        if "warning" in c:
+            w.append(c["warning"])
+        growth = f"{c['mb_per_replicate']:+.1f} MB" if c else "-"
+        short = re.sub(r"^data_\w+?_[0-9a-f]{8}_(?=\w)", "", j["rule"])  # drop the dataset prefix
+        print(f"{short[:44]:<44} {reason:<14} {j['wall_s']:>8.1f}s {peak:>8.0f} / {j['mem_mb']:<6} MB "
+              f"{dn.get('rss_peak_mb', 0):>6.0f}MB {growth:>11}")
+    for j in jobs:
+        for x in j["warnings"]:
+            print(f"WARNING {j['rule']}: {x}")
 
 
 def denet_summary(path):
@@ -259,14 +296,15 @@ def main():
             j["denet"] = d
         if ev := events.get(j["rule"].rsplit("_", 1)[-1]):
             j["module"] = ev
-            if "warning" in ev:
-                print(f"WARNING {j['rule']}: {ev['warning']}")
+            if c := creep(ev["replicate_rss_mb"], j["mem_mb"]):
+                j["creep"] = c
     for p in files:
         if p.parts[-1].endswith(("_metrics.tsv", ".jsonl", "parameters.json", "performance.txt", "lineage.json")):
             dst = res / p.relative_to(out)
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(p, dst)
     manifest["ended"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    diagnostics(manifest["jobs"])
     (res / "manifest.json").write_text(json.dumps(manifest, indent=1))
     failed = [j["rule"] for j in manifest["jobs"] if j["exit"]]
     print(f"{len(manifest['jobs']) - len(failed)}/{len(manifest['jobs'])} jobs ok -> {res}")
