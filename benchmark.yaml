@@ -55,7 +55,7 @@ stages:
         name: "Reference: scanpy PCA (arpack) -> exact kNN (sklearn brute force) -> Leiden (igraph)"
         software_environment: scanpy
         resources: {cores: 8, mem_mb: 6144, runtime: 20}
-        repository: {url: https://github.com/btraven00/sc-brrr, commit: 9405c16, entrypoint: reference}
+        repository: {url: https://github.com/btraven00/sc-brrr, commit: 76bf3c5, entrypoint: reference}
         parameters:
           - {random_seed: 0, n_components: 50, n_neighbors: 15, resolution: 1.0, replicate: 0}
 
@@ -67,13 +67,13 @@ stages:
       # CPU baseline, timed: scanpy as people run it. kNN uses scanpy's default, pynndescent
       # (approximate above 4096 cells).
       - id: scanpy
-        name: "CPU baseline: omni-scrna/scanpy, PCA (arpack) -> kNN (pynndescent) -> Leiden (igraph), fused"
+        name: "CPU baseline: omni-scrna/scanpy (+ shared-io), PCA (arpack) -> kNN (pynndescent) -> Leiden (igraph), fused"
         software_environment: scanpy
-        repository: &fuse {url: https://github.com/btraven00/sc-brrr, commit: 9405c16, entrypoint: fuse}
+        repository: &fuse {url: https://github.com/btraven00/sc-brrr, commit: 76bf3c5, entrypoint: fuse}
         parameters:
           # 6 same-seed replicates: nondeterminism, and the timed runs.
           - &scanpy_timed
-            module: https://github.com/omni-scrna/scanpy@b98b70b7cd72be784356045f825d48a1a7dc9365
+            module: https://github.com/btraven00/scanpy@97d8498dd1869388f47b29ca5eb110a8ae2f8703   # shared-io: upstream b98b70b + knn/cluster through writers.py pairs (in-memory handoff); back to omni-scrna once merged
             stages: pca=pca.py,knn=knn.py,cluster=cluster.py
             warmup_cells: 5000   # >= 4096 cells, so the warm-up takes scanpy's pynndescent path
             pca_solver: arpack
@@ -124,11 +124,11 @@ stages:
       - id: n_clusters
         name: "Cluster count per run (no reference needed)"
         software_environment: scanpy
-        repository: {url: https://github.com/btraven00/sc-brrr, commit: 9405c16, entrypoint: n-clusters}
+        repository: {url: https://github.com/btraven00/sc-brrr, commit: 76bf3c5, entrypoint: n-clusters}
       - id: contract
         name: "Every output of every replicate against specs/types.yaml"
         software_environment: scanpy
-        repository: {url: https://github.com/btraven00/sc-brrr, commit: 9405c16, entrypoint: contract}
+        repository: {url: https://github.com/btraven00/sc-brrr, commit: 76bf3c5, entrypoint: contract}
 
   # Next increment, once its module exists:
   # - id: report           # global gather -> scoreboard.md (Pages)
