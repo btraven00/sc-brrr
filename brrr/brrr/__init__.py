@@ -15,9 +15,9 @@ import os
 import signal
 import sys
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional, Sequence, TypeVar
+from typing import Any, Callable, Iterator, Mapping, Optional, Sequence, TypeVar
 
 import anndata as ad
 import h5py
@@ -31,11 +31,13 @@ __all__ = ["Params", "Graph", "Result", "Pipeline", "compose", "phase", "run"]
 
 @dataclass(frozen=True)
 class Params:
-    """Fixed by the organisers through the plan; a method must honour them, not tune them."""
+    """The protocol's values, fixed by the organisers (honour them, don't tune them), and the
+    method's own options from the plan (solver, index type, ...), as given: strings."""
     n_components: int = 50   # PCs, centred, no scaling
     n_neighbors: int = 15    # k, Euclidean on the PCs
     resolution: float = 1.0  # Leiden
     seed: int = 0            # one seed for every step of a replicate
+    options: Mapping[str, str] = field(default_factory=dict)  # --<name> <value> not listed above
 
 
 @dataclass
@@ -160,7 +162,11 @@ def _args(argv):
     a.add_argument("--seed_stride", type=int, default=0)
     a.add_argument("--warmup_cells", type=int, default=0)
     a.add_argument("--replicate", type=int, default=0)  # unused; separates same-seed output dirs
-    return a.parse_args(argv)
+    args, rest = a.parse_known_args(argv)
+    if len(rest) % 2 or any(not k.startswith("--") for k in rest[::2]):
+        a.error(f"method options must be --name value pairs: {rest}")
+    args.options = {k[2:]: v for k, v in zip(rest[::2], rest[1::2])}
+    return args
 
 
 def run(pipeline: Pipeline, sync: Optional[Callable[[], None]] = None,
@@ -170,7 +176,7 @@ def run(pipeline: Pipeline, sync: Optional[Callable[[], None]] = None,
     _sync = sync
     a = _args(argv)
     init_logger(str(a.output_dir.mkdir(parents=True, exist_ok=True) or a.output_dir))
-    base = Params(a.n_components, a.n_neighbors, a.resolution, a.random_seed)
+    base = Params(a.n_components, a.n_neighbors, a.resolution, a.random_seed, a.options)
     state: dict = {"replicate": None, "done": 0}
 
     # Why we quit, in the event log. The runner's own record of timeout / OOM is authoritative.

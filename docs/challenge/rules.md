@@ -14,9 +14,11 @@ repository:
   entrypoint: default
 software_environment: <id>            # declared in the same file
 requires_capabilities: [cuda]         # optional: cuda | metal
+parameters:                           # optional: your method's own options, passed as --<name> <value>
+  - {solver: randomized, index: cagra}
 ```
 
-The parameters are fixed by the organisers and set for every entry: 50 PCs, k = 15, Leiden resolution 1.0, the seeds, the replicates and the warm-up. Submissions cannot set their own.
+Your method's own options (solver, index type, precision, …) are yours to set, as one or more parameter sets; each set is scored as its own variant. The protocol's values are fixed by the organisers and set for every entry: 50 PCs, k = 15, Leiden resolution 1.0, the seeds, the replicates and the warm-up. An entry can't override those.
 
 Your module must:
 

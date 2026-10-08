@@ -16,6 +16,7 @@ The plan calls your entrypoint with:
 | `--n_components`, `--n_neighbors`, `--resolution` | fixed by the organisers: 50, 15, 1.0 |
 | `--replicates`, `--seed_stride` | run the pipeline this many times in one process; replicate r uses `random_seed + r * seed_stride` |
 | `--warmup_cells` | first run the whole pipeline on this many cells and discard it (imports, JIT, GPU initialisation) |
+| `--<option> <value>` | your method's own options, from the `parameters` of your submission (solver, index type, …) |
 
 and expects:
 
@@ -45,6 +46,7 @@ if __name__ == "__main__":
     run(compose(pca, knn, cluster))
 ```
 
+- Your own options arrive in `p.options` (`p.options["solver"]`), as strings.
 - Each step gets its own phase. Whatever `pca` returns is what `knn` receives, so data can
   stay on the GPU between steps; `mypy method.py` checks the chain.
 - If your method doesn't split into those steps, write one `pipeline(adata, p) -> Result`
