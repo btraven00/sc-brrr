@@ -28,7 +28,7 @@ and expects:
   phases where your method can tell them apart. Write outputs after the `replicate` phase
   ends: writing is not part of the timed work.
 - **One conda environment** for the whole method. Its on-disk size is reported as
-  **frugality**, so list only what you use.
+  **bloat** (env size and package count), so list only what you use.
 
 ## Python: the brrr driver
 

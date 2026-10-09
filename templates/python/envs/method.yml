@@ -1,5 +1,5 @@
 # The method's one environment: your dependencies plus the driver. Everything here counts
-# toward your frugality score (on-disk size of the built env), so list only what you use.
+# toward your bloat (on-disk size and package count of the built env), so list only what you use.
 name: method
 channels: [conda-forge, nodefaults]
 dependencies:

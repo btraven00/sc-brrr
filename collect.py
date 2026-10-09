@@ -10,7 +10,9 @@
 Records (specs/README.md) come from three places, all turned into the same shape:
   - *_metrics.jsonl written by metrics modules, as they are;
   - manifest.json (the runner, host side): job wall time, cgroup memory and CPU, env size;
-  - obkit-events.jsonl (the driver): walltime_s and step_walltime_s per replicate.
+  - obkit-events.jsonl (the driver): walltime_s and step_walltime_s per replicate, and the
+    warm-up's warmup_walltime_s and warmup_step_walltime_s (rep empty; the driver logs it as
+    `warmup:<step>` phases, the fuser in .fuse/warmup/obkit-events.jsonl).
 Each record then gets its subject's identity (dataset, stage, method, param hash, parameters,
 seed), the run's provenance and the catalog's columns (specs/metrics.yaml). Long format:
 one row per value; pivot for a wide view.
@@ -37,8 +39,8 @@ def rec(metric, value, subject, rep=None, **attrs):
 
 
 def from_manifest(m, out):
-    """Runner measurements. Rule names are the subject dir with / and . flattened to _."""
-    dirs = {re.sub(r"[/.]+", "_", str(p.parent.relative_to(out))).strip("_"): str(p.parent.relative_to(out))
+    """Runner measurements. Rule names are the subject dir with /, . and - flattened to _ (snakemake)."""
+    dirs = {re.sub(r"[/.-]+", "_", str(p.parent.relative_to(out))).strip("_"): str(p.parent.relative_to(out))
             for p in out.rglob("parameters.json") if ".snakemake" not in p.parts}
     envs = m.get("envs") or {}
     for j in m["jobs"]:
@@ -52,21 +54,28 @@ def from_manifest(m, out):
         if (c := j.get("creep")):
             yield rec("memory_growth_mb", c["mb_per_replicate"], s, sd=c["sd"], n=c["n"])
         if (e := envs.get(j.get("env"))):
-            yield rec("frugality_mb", e["size_mb"], s, env=j["env"], conda=e.get("conda_packages"), pip=e.get("pip_packages"))
+            yield rec("env_size_mb", e["size_mb"], s, env=j["env"])
+            n = (e.get("conda_packages") or 0) + (e.get("pip_packages") or 0)
+            yield rec("env_packages", n, s, env=j["env"], conda=e.get("conda_packages"), pip=e.get("pip_packages"))
 
 
-def from_events(path, subject):
-    """Durations of `replicate` and the step phases inside it; warm-up phases are skipped."""
+def from_events(path, subject, warm=False):
+    """Durations of `replicate` and the step phases inside it, and of the warm-up and its steps.
+    `warm`: the whole log is a warm-up (the fuser's .fuse/warmup log)."""
     ts = lambda e: datetime.fromisoformat(e["ts"].replace("Z", "+00:00")).timestamp()
     lines = [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
     staged = any(e["event"].startswith("stage:") for e in lines)  # fused run: only the fuser's phases are steps
-    open_, rep, seeds = {}, -1, {}
+    open_, rep, seeds, span = {}, -1, {}, []
     for e in lines:
         name, ph = e["event"], e["phase"]
+        w = warm or name.startswith("warmup:")
+        name = name.removeprefix("warmup:")
         if staged and name in STEP and not name.startswith("stage:"):
             continue  # a module's own `pca` phase inside stage:pca
-        if name.startswith("warmup") or name == "exit":
-            continue
+        if name == "exit" or (name == "warmup" and not warm):
+            continue  # the fuser's marker in the main log; the warm-up's own log has the phase
+        if w:
+            span.append(ts(e))
         if ph == "start":
             open_[name] = ts(e)
             rep += name == "replicate"
@@ -79,8 +88,12 @@ def from_events(path, subject):
             s = a.get("seed", a.get("seeds"))
             seeds[rep] = s if not isinstance(s, dict) else (next(iter(set(s.values()))) if len(set(s.values())) == 1 else None)
             yield rec("walltime_s", dt, subject, rep)
+        elif name in STEP and w:
+            yield rec("warmup_step_walltime_s", dt, subject, step=STEP[name])
         elif name in STEP and "replicate" in open_:
             yield rec("step_walltime_s", dt, subject, rep, step=STEP[name])
+    if span:
+        yield rec("warmup_walltime_s", round(max(span) - min(span), 3), subject)
     yield seeds
 
 
@@ -102,8 +115,11 @@ def main(run):
     for f in out.rglob("obkit-events.jsonl"):
         if ".snakemake" in f.parts:
             continue
-        subject = str(f.parent.relative_to(out))
-        *recs, seeds[subject] = from_events(f, subject)
+        rel = f.parent.relative_to(out).parts
+        warm = ".fuse" in rel  # the fuser's warm-up log belongs to the job dir above it
+        subject = str(Path(*rel[:rel.index(".fuse")])) if warm else str(Path(*rel))
+        *recs, s = from_events(f, subject, warm)
+        seeds.setdefault(subject, {}).update(s)
         rows += recs
     df = pl.DataFrame([{**r, "attrs": json.dumps(r["attrs"]) if r.get("attrs") else None,
                         "value": None if r["value"] is None else float(r["value"]),

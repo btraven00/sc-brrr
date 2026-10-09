@@ -39,6 +39,26 @@ metrics:
     formula: "duration of each step phase inside `replicate`; median over replicates"
     source: driver
     status: implemented
+  - id: warmup_walltime_s
+    name: Warm-up walltime (cold start)
+    group: cost
+    vs: none
+    primary: false
+    higher_is_better: false
+    unit: s
+    formula: "duration of the warm-up chain on the first --warmup_cells cells, once per job, before the replicates"
+    source: driver
+    status: implemented
+  - id: warmup_step_walltime_s
+    name: Per-step warm-up walltime (pca, knn, cluster)
+    group: cost
+    vs: none
+    primary: false
+    higher_is_better: false
+    unit: s
+    formula: "duration of each step phase inside the warm-up; one value per job"
+    source: driver
+    status: implemented
   - id: speedup
     name: Speed-up against the same-job baseline
     group: cost
@@ -253,14 +273,24 @@ metrics:
     formula: "integral of GPU (NVML) + CPU (RAPL) power over the replicate phase"
     source: runner
     status: planned
-  - id: frugality_mb
-    name: Frugality (environment size)
+  - id: env_size_mb
+    name: Bloat (environment size)
     group: resources
     vs: none
     primary: false
     higher_is_better: false
     unit: MB
-    formula: "on-disk size of the method's conda env as built in setup (du -sb: apparent size, hardlinks once); conda and pip package counts alongside"
+    formula: "on-disk size of the method's conda env as built in setup (du -sb: apparent size, hardlinks once); package count in env_packages"
+    source: runner
+    status: implemented
+  - id: env_packages
+    name: Bloat (package count)
+    group: resources
+    vs: none
+    primary: false
+    higher_is_better: false
+    unit: packages
+    formula: "conda packages (conda-meta) + pip-only packages in the method's env as built in setup; the two counts alongside"
     source: runner
     status: implemented
 

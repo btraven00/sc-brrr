@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "sc-brrr driver and fuser: CLI, warm-up, replicates, obkit phases and outputs for pipeline modules"
 requires-python = ">=3.10"
 # kept to what any pipeline env already has: the driver installs into the method's env, and
-# whatever it adds counts toward that method's frugality
+# whatever it adds counts toward that method's bloat
 dependencies = ["anndata", "obkit", "pyyaml"]  # anndata brings h5py, numpy, pandas, scipy
 
 [build-system]

@@ -139,7 +139,7 @@ The published input; PCs = 50, k = 15, resolution = 1.0, seed = 0, float32. Envi
 
 - *Primary cost:* end-to-end walltime (PCA → Leiden); per-step walltime.
 - *Primary fidelity:* edge Jaccard of the kNN graph against the reference; recall\@15 against exact kNN on the method's own PCs; kNN purity against the labels; subspace distance between the method's PCs and the reference's; ARI against the reference clusters.
-- *Secondary:* peak RSS and VRAM, energy, frugality (on-disk size of the method's software environment), transfer time, run-to-run ARI and edge Jaccard (RQ5), and further embedding and clustering scores.
+- *Secondary:* peak RSS and VRAM, energy, bloat (on-disk size and package count of the method's software environment), transfer time, run-to-run ARI and edge Jaccard (RQ5), and further embedding and clustering scores.
 
 Definitions are in `docs/infrastructure.typ`. Before the freeze any metric may change. After it, only secondary metrics may be added.
 
