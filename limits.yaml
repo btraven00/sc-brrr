@@ -6,7 +6,7 @@ default_runtime: 30      # minutes, rules without runtime
 term_grace_s: 10         # SIGTERM this long before the hard --timeout kill
 conda_cache: runs/.conda   # shared conda envs + package cache, relative to the repo
 data_cache: runs/.hf       # Hugging Face inputs (HF cache layout), mounted read-only; $SC_BRRR_DATA_CACHE wins
-cpuset_cpus: null        # e.g. "0-7"; TBD per host (infrastructure.typ, Cores and NUMA)
+cpuset_cpus: null        # e.g. "0-7"; TBD per host (docs/design.typ, Cores and NUMA)
 cpuset_mems: null        # e.g. "0"
 # Host capabilities -> podman args. Advertised to ob (--with-capability), and given only to
 # jobs whose module lists them in requires_capabilities, so CPU jobs never reserve the GPU.

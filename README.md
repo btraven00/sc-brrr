@@ -11,7 +11,8 @@ Computational trade-offs of GPU-accelerated single-cell pipelines (an omni-scrna
   [sc-brrr-runner](https://github.com/btraven00/sc-brrr-runner)
 
 - `protocol.typ`: the preregistered protocol
-- `docs/infrastructure.typ`: how runs are executed, limited and measured
+- `docs/overview.typ`: the infrastructure in two pages: what it guarantees, how an entry flows, what to trust
+- `docs/design.typ`: the design notes behind it: how runs are executed, limited and measured
 - `docs/challenge/`: instructions for challenge entries
 - `specs/`: output types, metric catalog, metric records
 
@@ -24,7 +25,7 @@ With pixi (installs a pinned Typst):
 
 ```sh
 pixi run protocol   # protocol.typ -> protocol.pdf
-pixi run docs       # docs/infrastructure.typ -> docs/infrastructure.pdf
+pixi run docs       # docs/overview.typ and docs/design.typ -> PDFs
 ```
 
 Pixi skips a task whose input hasn't changed since its last run; delete the PDF to force a
@@ -34,6 +35,7 @@ With Typst installed directly (0.14 or later):
 
 ```sh
 typst compile protocol.typ
-typst compile docs/infrastructure.typ
+typst compile docs/overview.typ
+typst compile docs/design.typ
 typst watch protocol.typ    # recompile on every save
 ```

@@ -1,5 +1,5 @@
 # sc-brrr metric catalog: every metric the benchmark reports, in one place.
-# docs/infrastructure.typ (Metric definitions) and the scoreboard should agree with this file.
+# docs/design.typ (Metric definitions) and the scoreboard should agree with this file.
 #
 #   id                stable column id on the scoreboard; never reused
 #   group             cost | fidelity | resources | reproducibility | hygiene

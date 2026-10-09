@@ -1,6 +1,6 @@
 # sc-brrr challenge rules
 
-Rules for third-party entries. How to write a module is in [module.md](module.md). The study itself is defined in `protocol.typ`, and the execution details are in `docs/infrastructure.typ`.
+Rules for third-party entries. How to write a module is in [module.md](module.md). The study itself is defined in `protocol.typ`, and the execution details are in `docs/design.typ`.
 
 ## Submitting
 

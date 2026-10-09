@@ -1,5 +1,5 @@
 // sc-brrr — preregistered protocol. Build: pixi run protocol
-// Operational detail lives in docs/infrastructure.typ, the challenge rules in docs/challenge/.
+// Operational detail lives in docs/overview.typ (brief) and docs/design.typ, the challenge rules in docs/challenge/.
 #set document(title: "sc-brrr: Preregistered Protocol", author: "btraven")
 #set page(paper: "a4", margin: 2.2cm, numbering: "1")
 #set text(size: 10.5pt)
@@ -24,7 +24,7 @@
   [Date], [2026-10-07],
   [Authors], [btraven],
   [Freeze], [The protocol is frozen by tagging `prereg-v1` before the first Phase 1 run (@phases).],
-  [Companions], [`docs/infrastructure.typ` (how runs are executed, limited and instrumented; full metric definitions), `docs/challenge/` (submission rules). Neither is part of the preregistration.],
+  [Companions], [`docs/overview.typ` (the infrastructure in brief), `docs/design.typ` (how runs are executed, limited and instrumented; full metric definitions), `docs/challenge/` (submission rules). Neither is part of the preregistration.],
 )
 
 = Study information
@@ -87,7 +87,7 @@ The same rules apply to every method, including the baselines and the organisers
 - *No shortcuts:* no precomputed results or indices shipped with the code; no detection of the benchmark data by hash, name or shape; no reading other methods' outputs.
 - *Honest timing:* all work happens inside the measured process tree. No detached processes or daemons, and no work done before the first or after the last instrumented phase.
 
-Enforcement is partly technical (sandbox, network off, process-tree monitoring, a held-out dataset that submitters never see) and partly by review of the code. A violation removes the method from the results. Removed methods are listed with the reason. How the sandbox is set up is in `docs/infrastructure.typ`, and the rules for entries are in `docs/challenge/`.
+Enforcement is partly technical (sandbox, network off, process-tree monitoring, a held-out dataset that submitters never see) and partly by review of the code. A violation removes the method from the results. Removed methods are listed with the reason. How the sandbox is set up is in `docs/design.typ`, and the rules for entries are in `docs/challenge/`.
 
 == Out of scope
 
@@ -108,7 +108,7 @@ Which methods enter Phase 1 is decided by the Phase 0 results and the rules belo
 
 A method is included only if, on every profile it claims:
 + *It runs.* It completes all Phase 0 replicates at 10k and 50k cells within the Phase 0 budget (@failures), with no out-of-memory, timeout or crash. Failing at 100k is allowed and recorded. Failing at a small size means the method would produce no Phase 1 data.
-+ *It honours the contract.* Its outputs have the declared formats, and the output cell ids match the input (`docs/infrastructure.typ`).
++ *It honours the contract.* Its outputs have the declared formats, and the output cell ids match the input (`docs/design.typ`).
 + *It is not degenerate.* At 50k cells: more than one Leiden cluster, and ARI against the reference ≥ #tbd[0.5]. This floor is deliberately loose, so that low-fidelity but working methods stay in. The challenge fidelity gate is stricter and is never used for inclusion.
 + *It is reproducible as code.* Open source, pinned to a commit, with a pinned environment that solves on the profile's platform.
 + *It plays fair* (@fairplay).
@@ -123,7 +123,7 @@ One warm-up run (discarded), then 5 timed runs with the same seed. For RQ5, 5 mo
 
 == Failures <failures>
 
-A (method, size) pair *fails* if it runs out of memory, times out, or exits with an error. Phase 0 budget per job: 6 GB RAM, 8 pinned cores, *5 min* for each candidate entry, and *20 min* for the baselines and the untimed reference. By projection, 6 GB holds to about 0.5M cells (`docs/infrastructure.typ`); the Phase 1 budget is #tbd[set from the Phase 0 measurements]. Failures are reported as results. A method that fails at one size is not run at larger sizes.
+A (method, size) pair *fails* if it runs out of memory, times out, or exits with an error. Phase 0 budget per job: 6 GB RAM, 8 pinned cores, *5 min* for each candidate entry, and *20 min* for the baselines and the untimed reference. By projection, 6 GB holds to about 0.5M cells (`docs/design.typ`); the Phase 1 budget is #tbd[set from the Phase 0 measurements]. Failures are reported as results. A method that fails at one size is not run at larger sizes.
 
 = Variables
 
@@ -141,7 +141,7 @@ The published input; PCs = 50, k = 15, resolution = 1.0, seed = 0, float32. Envi
 - *Primary fidelity:* edge Jaccard of the kNN graph against the reference; recall\@15 against exact kNN on the method's own PCs; kNN purity against the labels; subspace distance between the method's PCs and the reference's; ARI against the reference clusters.
 - *Secondary:* peak RSS and VRAM, energy, bloat (on-disk size and package count of the method's software environment), transfer time, run-to-run ARI and edge Jaccard (RQ5), and further embedding and clustering scores.
 
-Definitions are in `docs/infrastructure.typ`. Before the freeze any metric may change. After it, only secondary metrics may be added.
+Definitions are in `docs/design.typ`. Before the freeze any metric may change. After it, only secondary metrics may be added.
 
 = Analysis plan
 

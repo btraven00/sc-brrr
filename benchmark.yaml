@@ -1,4 +1,4 @@
-# sc-brrr Phase 0 pilot: the scanpy baseline. See protocol.typ / docs/infrastructure.typ.
+# sc-brrr Phase 0 pilot: the scanpy baseline. See protocol.typ / docs/design.typ.
 id: sc_brrr
 name: sc-brrr
 description: Computational trade-offs of GPU-accelerated single-cell pipelines (omni-scrna slice)
@@ -49,7 +49,7 @@ stages:
       - {id: embedding_tsv, path: "{name}_embedding.tsv"}
       - {id: neighbors_h5, path: "{name}_neighbors.h5"}
       - {id: clusters_tsv, path: "{name}_clusters.tsv"}
-    # Phase 0 budget: 6 GB holds to ~0.5M cells (projection in infrastructure.typ). 5 min per job is the
+    # Phase 0 budget: 6 GB holds to ~0.5M cells (projection in docs/design.typ). 5 min per job is the
     # candidates' budget (challenge entries); the reference and the baselines get 20 min (resources below).
     resources: {cores: 8, mem_mb: 6144, runtime: 5}
     modules:

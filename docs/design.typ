@@ -1,6 +1,6 @@
-// sc-brrr — infrastructure and analysis details (not part of the preregistration).
+// sc-brrr — design notes: the engineering behind docs/overview.typ, and analysis details (not part of the preregistration).
 // Build: pixi run docs
-#set document(title: "sc-brrr: Infrastructure", author: "btraven")
+#set document(title: "sc-brrr: Design notes", author: "Ben Carrillo")
 #set page(paper: "a4", margin: 2.2cm, numbering: "1")
 #set text(size: 10.5pt)
 #set par(justify: true)
@@ -11,8 +11,8 @@
 #let tbd(body) = text(fill: rgb("#b00020"))[\[TBD: #body\]]
 
 #align(center)[
-  #text(size: 17pt, weight: "bold")[sc-brrr: Infrastructure] \
-  #text(size: 10pt, style: "italic")[How the preregistered protocol (`protocol.typ`) is executed. This document may change at any time; changes that affect the protocol are logged there.]
+  #text(size: 17pt, weight: "bold")[sc-brrr: Design notes] \
+  #text(size: 10pt, style: "italic")[How the preregistered protocol (`protocol.typ`) is executed: the engineering behind `docs/overview.typ`, which is the short version. These notes may change at any time; changes that affect the protocol are logged there.]
 ]
 
 = Methods in detail

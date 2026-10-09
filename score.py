@@ -21,7 +21,7 @@ A version is scored once per plan and host: if its results exist, bump the versi
 baselines, metrics, data) has a new hash, so every version can be re-scored against it. A
 version never changes its commit.
 
-Queue (docs/infrastructure.typ, Scoring service): merged entries wait in incoming/<account>/, scored
+Queue (docs/design.typ, Scoring service): merged entries wait in incoming/<account>/, scored
 ones (a result exists, its jobs ok or not) move to submissions/, unscored ones (rejected, setup
 failed) to failed/. A version exists once across the three.
 
@@ -140,7 +140,7 @@ def with_entry(plan, sub, name, path):
 
 
 # ponytail: keyed by the size label; key on <data id>-<input sha256[:8]> once there is a second input
-# or format (docs/infrastructure.typ, Caveats for future changes)
+# or format (docs/design.typ, Caveats for future changes)
 def gate(results, acct, name, ver, phash, hid, size, path):
     """None if this version may be scored on this plan, host and size, else why not.
     A scored version is frozen: its submission and env file, byte for byte, on every host.

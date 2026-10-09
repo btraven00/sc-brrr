@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [tasks]
 protocol = { cmd = "typst compile protocol.typ protocol.pdf", inputs = ["protocol.typ"], outputs = ["protocol.pdf"] }
-docs = { cmd = "typst compile docs/infrastructure.typ docs/infrastructure.pdf", inputs = ["docs/infrastructure.typ"], outputs = ["docs/infrastructure.pdf"] }
+docs = { cmd = "typst compile docs/overview.typ docs/overview.pdf && typst compile docs/design.typ docs/design.pdf", inputs = ["docs/overview.typ", "docs/design.typ"], outputs = ["docs/overview.pdf", "docs/design.pdf"] }
 
 [dependencies]
 typst = ">=0.14,<0.16"
