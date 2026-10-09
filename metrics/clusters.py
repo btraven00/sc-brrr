@@ -3,7 +3,8 @@
 
 Reads every clusters_tsv in the group (--clusters_tsv, one per member) and the
 lineage.json that ob writes into the output dir, and writes {name}_metrics.jsonl:
-one `n_clusters` record (specs/README.md) per member.
+one `n_clusters` record (specs/README.md) per member for its declared output (rep: null,
+replicate 0), and one per in-process replicate found next to it (rep<r>/, rep: r).
 """
 
 import argparse
@@ -32,9 +33,13 @@ def main():
         for path in args.clusters_tsv:
             # lineage dirs are relative to out/; inputs arrive absolute
             subject = next(m["dir"] for m in members if str(Path(path).parent).endswith(m["dir"]))
-            n_cells, n_clusters = count(path)
-            f.write(json.dumps({"metric": "n_clusters", "value": n_clusters, "subject": subject,
-                                "rep": None, "attrs": {"n_cells": n_cells}}) + "\n")
+            reps = [(None, Path(path))] + sorted(
+                (int(d.name[3:]), d / Path(path).name) for d in Path(path).parent.glob("rep*")
+                if d.name[3:].isdigit() and (d / Path(path).name).is_file())
+            for rep, q in reps:
+                n_cells, n_clusters = count(q)
+                f.write(json.dumps({"metric": "n_clusters", "value": n_clusters, "subject": subject,
+                                    "rep": rep, "attrs": {"n_cells": n_cells}}) + "\n")
 
 
 if __name__ == "__main__":

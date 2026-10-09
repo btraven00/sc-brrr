@@ -84,6 +84,8 @@ function cell(e, [k, , dp], max) {
   if (k === "contract_failed") return v == null ? `<td class="dim">–</td>` : `<td class="${v ? "bad" : "ok"}">${v ? v + " failed" : "ok"}</td>`;
   if (k === "entry") return `<td title="${esc(e.label)}">${esc(v)}${e.baseline ? '<span class="tag">baseline</span>' : ""}<small>${[e.tool, e.runtime, e.device].map(x => esc(x ?? "?")).join(" · ")}</small></td>`;
   if (k === "submitted") return `<td class="dim" title="submitted ${esc(v ?? "?")}, scored ${esc(e.scored)}">${esc(v?.slice(0, 10) ?? "–")}<small>scored ${esc(e.scored?.slice(0, 10))}</small></td>`;
+  if (k === "n_clusters") return v == null ? `<td class="num dim">–</td>` :
+    `<td class="num" title="median ± sd of ${e.n_clusters_n} cluster counts${e.n_clusters_n <= 2 ? " (one per seed arm: stored before every replicate was counted)" : ", one per replicate"}">${Number(v)}${e.n_clusters_sd != null ? ` <span class="dim">±${e.n_clusters_sd}</span>` : ""}</td>`;
   if (k === "size") return `<td class="dim" title="host ${esc(e.host)}: ${esc([e.cpu_model, e.gpu].filter(Boolean).join(" + ") || "no host facts recorded")}">${esc(v)}<small>${esc(e.host)}</small></td>`;
   if (k === "version") return `<td class="dim" title="commit ${esc(e.commit)}${e.baseline ? ", latest of " + e.runs + " runs" : ""}">${esc(v)}<small>plan ${esc(e.plan)}</small></td>`;
   if (dp === undefined) return `<td class="dim">${esc(v)}</td>`;
