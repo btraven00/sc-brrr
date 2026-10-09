@@ -29,7 +29,9 @@
            background: linear-gradient(to left, var(--bar) var(--w, 0%), transparent var(--w, 0%)); }
   td.ok { color: var(--ok); } td.bad { color: var(--bad); }
   td.dim, .dim { color: var(--mute); }
-  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 24px; margin-top: 20px; }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 24px 32px; margin-top: 20px; }
+  .charts > div { min-width: 0; }   /* a chart never widens its column */
+  @media (max-width: 800px) { .charts { grid-template-columns: 1fr; } }
   .charts > div:nth-child(3) { grid-column: 1 / -1; }   /* the scatter: its own row, room for its legends */
   .charts h3 { font-size: 12px; font-weight: 600; margin: 0 0 6px; color: var(--mute); }
   .controls { margin: 20px 0 0; display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; }
@@ -113,8 +115,9 @@ const CFG = { background: null, font: "ui-monospace, Menlo, monospace",
   legend: { labelColor: "#23211c", titleColor: "#77725f" }, view: { stroke: null },
   range: { category: ["#4c6a92", "#c07a2c", "#5d8c5a", "#a64b4b", "#7d6aa0", "#8a7b55"] } };
 // a fixed width from the box (vega's "container" sizing measures too early in a fresh grid)
-const embed = (el, spec) => vegaEmbed(el, { $schema: "https://vega.github.io/schema/vega-lite/v5.json",
-  width: Math.max(200, el.parentElement.clientWidth - 200),
+// room: what the y-axis labels take, so the plot plus its labels fit the column
+const embed = (el, spec, room = 90) => vegaEmbed(el, { $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+  width: Math.max(120, el.parentElement.clientWidth - room),
   config: CFG, ...spec }, { actions: false });
 
 function charts(rows, reps, el) {
@@ -124,6 +127,7 @@ function charts(rows, reps, el) {
   el.innerHTML = `<div><h3>time per replicate (s), every replicate</h3><div class="c1"></div></div>
     <div><h3>median step time (s)</h3><div class="c2"></div></div>
     <div><h3>time vs peak RAM, by tool (dot size: env MB)</h3><div class="c3"></div></div>`;
+  const room = Math.min(340, 40 + 6.2 * Math.max(...rows.map(r => label(r).length)));
   const totals = reps.filter(r => r.step === "total").map(r => ({ ...r, who: label(r) }));
   embed(el.querySelector(".c1"), { data: { values: totals }, height: { step: 22 },
     layer: [
@@ -132,7 +136,7 @@ function charts(rows, reps, el) {
                     y: { field: "who", type: "nominal", title: null },
                     tooltip: [{ field: "who" }, { field: "rep" }, { field: "seed" }, { field: "value", format: ".3f" }] } },
       { mark: { type: "point", shape: "diamond", filled: true, size: 60, color: "#a64b4b" },
-        encoding: { x: { aggregate: "median", field: "value" }, y: { field: "who", type: "nominal" } } }] });
+        encoding: { x: { aggregate: "median", field: "value" }, y: { field: "who", type: "nominal" } } }] }, room);
   const steps = rows.flatMap(r => ["pca", "knn", "cluster"].filter(s => r[s] != null)
     .map((s, i) => ({ who: label(r), step: s, i, value: r[s] })));
   embed(el.querySelector(".c2"), { data: { values: steps }, height: { step: 22 }, mark: "bar",
@@ -141,15 +145,20 @@ function charts(rows, reps, el) {
                 color: { field: "step", type: "nominal", sort: ["pca", "knn", "cluster"], title: null,
                          legend: { orient: "bottom", direction: "horizontal" } },
                 order: { field: "i" },   // pipeline order, not alphabetical
-                tooltip: [{ field: "who" }, { field: "step" }, { field: "value", format: ".3f" }] } });
-  embed(el.querySelector(".c3"), { data: { values: rows.filter(r => r.walltime != null).map(r => ({ ...r, who: label(r) })) },
-    height: 260, mark: { type: "point", filled: true, opacity: 0.8 },
-    encoding: { x: { field: "walltime", type: "quantitative", title: "time/rep (s)", scale: { zero: false } },
-                y: { field: "peak_ram_mb", type: "quantitative", title: "peak RAM (MB)", scale: { zero: false } },
-                size: { field: "env_mb", type: "quantitative", legend: null, scale: { range: [40, 600] } },
-                color: { field: "tool", type: "nominal", title: null, legend: { orient: "bottom", direction: "horizontal" } },
-                shape: { field: "device", type: "nominal", title: null, legend: { orient: "bottom", direction: "horizontal" } },
-                tooltip: [{ field: "who" }, { field: "tool" }, { field: "device" }, { field: "walltime" }, { field: "peak_ram_mb" }, { field: "env_mb" }] } });
+                tooltip: [{ field: "who" }, { field: "step" }, { field: "value", format: ".3f" }] } }, room);
+  // one colour per tool, results without one (scored before tools were labelled) left out
+  const pts = rows.filter(r => r.walltime != null && r.peak_ram_mb != null && r.tool).map(r => ({ ...r, who: label(r) }));
+  embed(el.querySelector(".c3"), { data: { values: pts }, height: 260,
+    encoding: { x: { field: "walltime", type: "quantitative", title: "time/rep (s)", scale: { zero: false, padding: 24 }, axis: { tickCount: 10 } },
+                y: { field: "peak_ram_mb", type: "quantitative", title: "peak RAM (MB)", scale: { zero: false, padding: 24 } } },
+    layer: [
+      { mark: { type: "circle", opacity: 0.85 },
+        encoding: { size: { field: "env_mb", type: "quantitative", legend: null, scale: { range: [60, 260] } },
+                    color: { field: "tool", type: "nominal", title: null, legend: { orient: "bottom", direction: "horizontal" } },
+                    tooltip: [{ field: "who" }, { field: "tool" }, { field: "device" }, { field: "walltime" }, { field: "peak_ram_mb" }, { field: "env_mb" }] } },
+      { transform: [{ filter: "datum.baseline" }],   // the baselines are the reference points; entries: hover
+        mark: { type: "text", align: "left", dx: 9, dy: -7, fontSize: 10, color: "#77725f" },
+        encoding: { text: { field: "entry" } } }] });
 }
 
 const cellsOf = sz => parseFloat(sz) * ({ k: 1e3, m: 1e6 }[sz.slice(-1).toLowerCase()] ?? 1);   // "50k" -> 50000
