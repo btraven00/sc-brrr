@@ -45,7 +45,7 @@ stages:
     modules:
       - id: cxg-adapt
         software_environment: scanpy
-        repository: {url: "..", commit: "3d58fb5", entrypoint: adapt}
+        repository: {url: "..", commit: "ec88606", entrypoint: adapt}
         parameters:
           - labels_var: celltype.l2
             batch_var: donor_id
@@ -107,7 +107,7 @@ stages:
     modules:
       - id: ladder
         software_environment: scanpy
-        repository: {url: "..", commit: "3d58fb5", entrypoint: export}
+        repository: {url: "..", commit: "ec88606", entrypoint: export}
         parameters:
           - n_cells: [10000, 50000, 100000]   # Phase 0 ladder; Phase 1 uses a larger atlas
             random_seed: 0
