@@ -65,7 +65,7 @@ The steps are not split into separate Omnibenchmark stages, because that would a
 == Methods <methods>
 
 #table(
-  columns: (auto, auto, 1fr),
+  columns: (auto, 1fr),
   table.header([*Method*], [*Role*]),
   [reference (scanpy, exact kNN)], [untimed and never ranked; the target for all relative fidelity metrics],
   [scanpy (defaults)], [CPU baseline: scanpy as commonly run (approximate kNN via pynndescent)],
