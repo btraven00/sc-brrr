@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use sc-brrr, its protocol, baselines or results, please cite as below."
+type: software
+title: "sc-brrr: computational trade-offs of GPU-accelerated single-cell pipelines"
+abstract: "A benchmark and open challenge for PCA, kNN graph and Leiden clustering on single-cell data: timed under a fixed protocol in a sandbox, fidelity against an exact reference, results notarised in a public repository."
+authors:
+  - given-names: Ben
+    family-names: Carrillo
+    alias: btraven
+    email: ben.uzh@proton.me
+    orcid: "https://orcid.org/0009-0003-5704-4151"
+version: "0.1.0"
+license: MIT
+repository-code: "https://github.com/btraven00/sc-brrr"
+keywords: [single-cell, benchmark, gpu, omnibenchmark]
