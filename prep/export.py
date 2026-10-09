@@ -3,7 +3,10 @@
 
 Reads the omni-scrna normalized_selected_h5 (TENx layout, genes x cells) and the
 DATA labels, and writes {name}.h5ad: X = log-normalised HVG matrix (CSR float32,
-cells x genes), obs["label"], obs["label_cl"].
+cells x genes), obs["label"], obs["label_cl"], and in uns the ground truth a method's
+clustering is compared to: n_clusters_true (annotated cell types in this rung),
+n_clusters_true_all (in the whole filtered dataset; rare types can round to zero cells
+in a small rung), label_key, and the rung's n_cells and random_seed.
 
 Subsampling is nested and stratified. Each cell gets one seeded uniform key, and a
 rung of size n takes, from each label, the round(n * share) cells with the
@@ -57,8 +60,11 @@ def main():
     obs = truth.loc[cells].rename(columns={"truths": "label", "truths_cl": "label_cl"})
 
     keep = nested_stratified(obs["label"].to_numpy(), args.n_cells, args.random_seed)
-    a = ad.AnnData(X=X[keep], obs=obs[keep], var=pd.DataFrame(index=genes))
-    print(f"rung n_cells={args.n_cells}: wrote {a.n_obs} cells x {a.n_vars} genes")
+    uns = {"n_clusters_true": int(obs["label"][keep].nunique()), "n_clusters_true_all": int(obs["label"].nunique()),
+           "label_key": "label", "n_cells": args.n_cells, "random_seed": args.random_seed}
+    a = ad.AnnData(X=X[keep], obs=obs[keep], var=pd.DataFrame(index=genes), uns=uns)
+    print(f"rung n_cells={args.n_cells}: wrote {a.n_obs} cells x {a.n_vars} genes, "
+          f"{uns['n_clusters_true']} of {uns['n_clusters_true_all']} cell types")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     a.write_h5ad(args.output_dir / f"{args.name}.h5ad")
 
