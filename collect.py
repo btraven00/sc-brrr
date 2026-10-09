@@ -51,6 +51,8 @@ def from_manifest(m, out):
         yield rec("cpu_s", cg.get("cpu_s"), s)
         if (dn := j.get("denet")) and dn.get("samples"):
             yield rec("rss_peak_mb", dn.get("rss_peak_mb"), s)
+            if "cuda" in (j.get("capabilities") or []) and dn.get("vram_peak_mb") is not None:  # device-wide: GPU jobs only
+                yield rec("vram_peak_mb", dn["vram_peak_mb"], s)
         if (c := j.get("creep")):
             yield rec("memory_growth_mb", c["mb_per_replicate"], s, sd=c["sd"], n=c["n"])
         if (e := envs.get(j.get("env"))):

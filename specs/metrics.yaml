@@ -250,7 +250,7 @@ metrics:
     primary: false
     higher_is_better: false
     unit: MB
-    formula: "max over NVML samples of device memory in use; exclusive GPU required"
+    formula: "max over denet's NVML samples of device memory in use (device-wide: an exclusive GPU makes it the job's); jobs that require cuda only"
     source: denet
     status: implemented
   - id: cpu_s

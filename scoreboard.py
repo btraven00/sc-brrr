@@ -27,6 +27,21 @@ PAGE = Path(__file__).resolve().parent / "scoreboard" / "index.html"
 TIMES = ["walltime_s", "step_walltime_s", "warmup_step_walltime_s"]
 
 
+def vram_from_trace(d, name):
+    """Peak VRAM (MB) of a result's pipeline jobs, from their published denet traces: for results
+    stored before collect.py recorded vram_peak_mb. NVML memory in use, device-wide, as there."""
+    peak = None
+    for f in d.rglob("denet.jsonl"):
+        if "pipeline" not in f.parts or name not in f.parts:
+            continue
+        for line in open(f):
+            e = json.loads(line)
+            if e.get("kind") == "tree":
+                for g in ((e.get("parent") or {}).get("gpu") or {}).get("system_metrics") or []:
+                    peak = max(peak or 0, (g.get("memory_used") or 0) / 2**20)
+    return peak
+
+
 def entry(ds, root):
     """One scoreboard row from one result dir, or from several runs of a baseline (pooled: every
     replicate of every run counts, so its spread is the spread over runs too)."""
@@ -57,6 +72,10 @@ def entry(ds, root):
            "walltime_sd": round(w.std(), 3) if len(w) > 1 else None, "n": len(w),
            **steps, "warmup": med("warmup_walltime_s", 2),
            "peak_ram_mb": v("mem_peak_mb").max(), "rss_peak_mb": v("rss_peak_mb").max(),
+           # GPU jobs only (device-wide NVML); results from before the metric: from their traces
+           "vram_mb": (v("vram_peak_mb").max() if len(v("vram_peak_mb")) else
+                       max((x for x in (vram_from_trace(d_, name) for d_ in ds) if x is not None), default=None))
+                      if "cuda" in (sub.get("requires_capabilities") or []) else None,
            "growth_mb": med("memory_growth_mb", 1), "env_mb": v("env_size_mb").max(), "packages": v("env_packages").max(),
            "contract_failed": int((v("contract_ok") == 0).sum()) if len(v("contract_ok")) else None,
            "n_clusters": med("n_clusters", 0), "path": str(d.relative_to(root) if len(ds) == 1 else d.parents[3].relative_to(root)),   # a baseline: baselines/<id>

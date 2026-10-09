@@ -32,7 +32,7 @@
   .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 24px 32px; margin-top: 20px; }
   .charts > div { min-width: 0; }   /* a chart never widens its column */
   @media (max-width: 800px) { .charts { grid-template-columns: 1fr; } }
-  .charts > div:nth-child(3) { grid-column: 1 / -1; }   /* the scatter: its own row, room for its legends */
+  .charts > .wide { grid-column: 1 / -1; }   /* full-width rows: the paired panels, then the scatter */
   .charts h3 { font-size: 12px; font-weight: 600; margin: 0 0 6px; color: var(--mute); }
   .controls { margin: 20px 0 0; display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; }
   select { max-width: 360px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); padding: 2px 6px; margin-left: 6px; }
@@ -53,7 +53,7 @@
   <h1>sc-brrr scoreboard</h1>
   <p>PCA → kNN → Leiden on single-cell data. Lower is better everywhere. Times are per replicate, in seconds:
      the median over same-seed and different-seed replicates; warm-up is the one-off cold start (imports, JIT, GPU init).
-     Growth: memory added per replicate (MB). Device comes from the entry's declared capabilities.
+     VRAM: peak GPU memory in use, device-wide, for GPU entries. Growth: memory added per replicate (MB). Device comes from the entry's declared capabilities.
      Bloat (env size, packages) is shown, not ranked. Fidelity gate not computed yet: every entry is listed.
      Every plan is shown together; pick one plan to see only its results. Baselines run on a schedule, and
      their row pools every replicate of every run (their spread includes the spread over runs).
@@ -71,11 +71,11 @@ const COLS = [
   ["entry", "entry"], ["version", "ver"], ["size", "size / host"], ["status", "status"],
   ["walltime", "time/rep", 3], ["walltime_sd", "± sd", 3],
   ["pca", "pca", 3], ["knn", "knn", 3], ["cluster", "cluster", 3],
-  ["warmup", "warm-up", 1], ["peak_ram_mb", "RAM MB", 0], ["growth_mb", "growth", 1],
+  ["warmup", "warm-up", 1], ["peak_ram_mb", "RAM MB", 0], ["vram_mb", "VRAM MB", 0], ["growth_mb", "growth", 1],
   ["env_mb", "env MB", 0], ["packages", "pkgs", 0], ["n_clusters", "clust", 0], ["contract_failed", "contract", 0],
   ["submitted", "submitted"],   // date; the scoring date underneath
 ];
-const BARS = new Set(["walltime", "pca", "knn", "cluster", "warmup", "peak_ram_mb", "env_mb", "packages"]);
+const BARS = new Set(["walltime", "pca", "knn", "cluster", "warmup", "peak_ram_mb", "vram_mb", "env_mb", "packages"]);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[c]);
 
 function cell(e, [k, , dp], max) {
@@ -124,28 +124,33 @@ function charts(rows, reps, el) {
   // size and host in the label only when the shown results differ in them
   const varies = k => new Set(rows.map(r => r[k])).size > 1;
   const label = r => [`${r.entry} ${r.version}`, ...["size", "host", "plan"].filter(varies).map(k => r[k])].join(" · ");
-  el.innerHTML = `<div><h3>time per replicate (s), every replicate</h3><div class="c1"></div></div>
-    <div><h3>median step time (s)</h3><div class="c2"></div></div>
-    <div><h3>time vs peak RAM, by tool (dot size: env MB)</h3><div class="c3"></div></div>`;
+  el.innerHTML = `<div class="wide"><h3>time per replicate (s): every replicate, ◆ median · median step time (s)</h3><div class="c1"></div></div>
+    <div class="wide"><h3>time vs peak RAM, by tool (dot size: env MB)</h3><div class="c3"></div></div>`;
+  // one chart, two panels on one y-axis: an entry is one row across both, so they can't drift apart
   const room = Math.min(340, 40 + 6.2 * Math.max(...rows.map(r => label(r).length)));
+  const half = Math.max(160, (el.querySelector(".c1").parentElement.clientWidth - room - 60) / 2);
   const totals = reps.filter(r => r.step === "total").map(r => ({ ...r, who: label(r) }));
-  embed(el.querySelector(".c1"), { data: { values: totals }, height: { step: 22 },
-    layer: [
-      { mark: { type: "tick", thickness: 1.5, color: "#4c6a92" },
-        encoding: { x: { field: "value", type: "quantitative", title: null, scale: { zero: false } },
-                    y: { field: "who", type: "nominal", title: null },
-                    tooltip: [{ field: "who" }, { field: "rep" }, { field: "seed" }, { field: "value", format: ".3f" }] } },
-      { mark: { type: "point", shape: "diamond", filled: true, size: 60, color: "#a64b4b" },
-        encoding: { x: { aggregate: "median", field: "value" }, y: { field: "who", type: "nominal" } } }] }, room);
   const steps = rows.flatMap(r => ["pca", "knn", "cluster"].filter(s => r[s] != null)
     .map((s, i) => ({ who: label(r), step: s, i, value: r[s] })));
-  embed(el.querySelector(".c2"), { data: { values: steps }, height: { step: 22 }, mark: "bar",
-    encoding: { x: { field: "value", type: "quantitative", title: null, stack: true },
-                y: { field: "who", type: "nominal", title: null },
-                color: { field: "step", type: "nominal", sort: ["pca", "knn", "cluster"], title: null,
-                         legend: { orient: "bottom", direction: "horizontal" } },
-                order: { field: "i" },   // pipeline order, not alphabetical
-                tooltip: [{ field: "who" }, { field: "step" }, { field: "value", format: ".3f" }] } }, room);
+  const y = { field: "who", type: "nominal", title: null, sort: "ascending" };
+  vegaEmbed(el.querySelector(".c1"), { $schema: "https://vega.github.io/schema/vega-lite/v5.json", config: CFG,
+    resolve: { scale: { y: "shared", color: "independent" } }, spacing: 28,
+    hconcat: [
+      { data: { values: totals }, width: half, height: { step: 22 },
+        layer: [
+          { mark: { type: "tick", thickness: 1.5, color: "#4c6a92" },
+            encoding: { x: { field: "value", type: "quantitative", title: "time per replicate (s)", scale: { zero: false } }, y,
+                        tooltip: [{ field: "who" }, { field: "rep" }, { field: "seed" }, { field: "value", format: ".3f" }] } },
+          { mark: { type: "point", shape: "diamond", filled: true, size: 60, color: "#a64b4b" },
+            encoding: { x: { aggregate: "median", field: "value" }, y } }] },
+      { data: { values: steps }, width: half, height: { step: 22 }, mark: "bar",
+        encoding: { x: { field: "value", type: "quantitative", title: "median step time (s)", stack: true },
+                    y: { ...y, axis: null },   // the left panel's labels serve both
+                    color: { field: "step", type: "nominal", sort: ["pca", "knn", "cluster"], title: null,
+                             legend: { orient: "bottom", direction: "horizontal" } },
+                    order: { field: "i" },   // pipeline order, not alphabetical
+                    tooltip: [{ field: "who" }, { field: "step" }, { field: "value", format: ".3f" }] } }] },
+    { actions: false });
   // one colour per tool, results without one (scored before tools were labelled) left out
   const pts = rows.filter(r => r.walltime != null && r.peak_ram_mb != null && r.tool).map(r => ({ ...r, who: label(r) }));
   embed(el.querySelector(".c3"), { data: { values: pts }, height: 260,

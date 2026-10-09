@@ -270,8 +270,9 @@ def env_sizes(out, conda):
 
 
 def denet_summary(path):
-    """Peaks of the traced process tree, from denet's aggregated samples."""
-    rss, threads, cpu_s, n, prev = 0, 0, 0.0, 0, None
+    """Peaks of the traced process tree, from denet's aggregated samples. vram_peak_mb: NVML's
+    memory in use, device-wide (anything else on the GPU counts too), max over samples and devices."""
+    rss, threads, cpu_s, n, prev, vram = 0, 0, 0.0, 0, None, None
     for line in open(path):
         e = json.loads(line)
         if e.get("kind") != "tree":
@@ -282,7 +283,10 @@ def denet_summary(path):
         if prev is not None:
             cpu_s += a["cpu_usage"] / 100 * (a["ts_ms"] - prev) / 1000
         prev = a["ts_ms"]
-    return {"rss_peak_mb": round(rss / 1024, 1), "cpu_s": round(cpu_s, 1), "threads_peak": threads, "samples": n}
+        for g in ((e.get("parent") or {}).get("gpu") or {}).get("system_metrics") or []:
+            vram = max(vram or 0, g.get("memory_used") or 0)
+    return {"rss_peak_mb": round(rss / 1024, 1), "cpu_s": round(cpu_s, 1), "threads_peak": threads, "samples": n,
+            "vram_peak_mb": None if vram is None else round(vram / 2**20, 1)}
 
 
 def main():
