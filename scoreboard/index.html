@@ -56,7 +56,7 @@
      1st result: from the job's container starting to the end of the warm-up, a full cold run on the whole input
      (container, environment, imports, load, compilation, one run): what a one-off run pays. Mem: peak RAM + peak VRAM;
      VRAM: peak GPU memory in use, device-wide, for GPU entries. Cores: CPU time over wall time of the job, as the
-     host measures it (8 allowed; load and warm-up included). Growth: memory added per replicate (MB). Device comes from the entry's declared capabilities.
+     host measures it (8 allowed; load and warm-up included). Growth: RSS added from one replicate to the next, MB per replicate (the module's own report at each replicate's end; a steady climb is a leak). Device comes from the entry's declared capabilities.
      Bloat (env size, packages) is shown, not ranked. Fidelity gate not computed yet: every entry is listed.
      Every plan is shown together; pick one plan to see only its results. Baselines run on a schedule, and
      their row pools every replicate of every run (their spread includes the spread over runs).
@@ -74,7 +74,7 @@ const COLS = [
   ["entry", "entry"], ["version", "ver"], ["size", "size / host"], ["status", "status"],
   ["walltime", "time/rep", 3],   // ± sd underneath
   ["pca", "pca", 3], ["knn", "knn", 3], ["cluster", "cluster", 3],
-  ["warmup", "warm-up", 1], ["time_to_result", "1st result", 1], ["mem_mb", "mem MB", 0], ["vram_mb", "VRAM MB", 0], ["cores", "cores", 1], ["growth_mb", "growth", 1],
+  ["warmup", "warm-up", 1], ["time_to_result", "1st result", 1], ["mem_mb", "mem MB", 0], ["vram_mb", "VRAM MB", 0], ["cores", "cores", 1], ["growth_mb", "growth MB/rep", 1],
   ["env_mb", "env MB", 0], ["packages", "pkgs", 0], ["n_clusters", "clust", 0], ["contract_failed", "contract", 0],
   ["submitted", "submitted"],   // date; the scoring date underneath
 ];
