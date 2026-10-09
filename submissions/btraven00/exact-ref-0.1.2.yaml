@@ -1,0 +1,8 @@
+# Example entry: the exact-kNN reference resubmitted as a candidate (tests the scoring path).
+name: "Example: exact reference as an entry"
+tool: scanpy
+runtime: python
+repository:
+  url: https://github.com/btraven00/sc-brrr
+  commit: 76bf3c5e20bdd3fc1c6ff665dc48d3b8580860c5
+  entrypoint: reference

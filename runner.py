@@ -20,9 +20,11 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import signal
+import socket
 import statistics
 import subprocess
 import sys
@@ -45,6 +47,20 @@ def sha256(p):
         for b in iter(lambda: f.read(1 << 20), b""):
             h.update(b)
     return h.hexdigest()
+
+
+def host_info():
+    """This machine: id = sha256 of hostname, CPU model and kernel (8 hex). The hostname goes into
+    the id only, never into the results; a kernel update gives a new id, as it can change timings."""
+    cpu = next((line.split(":", 1)[1].strip() for line in open("/proc/cpuinfo") if line.startswith("model name")),
+               platform.processor())
+    kernel = platform.release()
+    gpus = sh("nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader").stdout \
+        if shutil.which("nvidia-smi") else ""
+    return {"id": hashlib.sha256(f"{socket.gethostname()}\n{cpu}\n{kernel}".encode()).hexdigest()[:8],
+            "cpu_model": cpu, "kernel": kernel, "cpu_count": os.cpu_count(),
+            "memory_total_mb": os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") // 2**20,
+            "gpus": [dict(zip(("name", "driver", "memory"), map(str.strip, g.split(",")))) for g in gpus.splitlines() if g]}
 
 
 def render(plan, mounts):
@@ -200,7 +216,7 @@ def diagnostics(jobs, envs):
 
 
 def env_sizes(out, conda):
-    """Frugality: on-disk size of every conda env the plan uses, keyed by env file. Snakemake
+    """Bloat: on-disk size of every conda env the plan uses, keyed by env file. Snakemake
     keeps a byte-identical copy of the env file next to the env (<hash>_.yaml), so the match
     is by content. Apparent size, hardlinks counted once: what installing the env costs, not
     what it adds to this host (files are hardlinked from the shared pkgs cache)."""
@@ -255,7 +271,7 @@ def main():
 
     base = ["podman", "run", "--rm", "-e", "XDG_CACHE_HOME=/bench/out/.cache",
             "-v", f"{REPO}:/bench:ro",
-            "-v", f"{run / 'benchmark.yaml'}:/bench/{plan_src.name}:ro",
+            "-v", f"{run / 'benchmark.yaml'}:/bench/benchmark.yaml:ro",  # over the checkout's own: a new path would leave a mount point in it
             "-v", f"{run / 'filter.yaml'}:/filter.yaml:ro",  # outside /bench: no mount point left in the checkout
             "-v", f"{out}:/bench/out"]
     # other runs' outputs live in the checkout too; hide them behind an empty dir
@@ -278,7 +294,7 @@ def main():
     host_caps = lim.get("capabilities") or {}
     needs = {(st["id"], m["id"]): m.get("requires_capabilities", [])
              for st in plan["stages"] for m in st.get("modules", [])}
-    ob = ["ob", "run", plan_src.name, "--filter", "/filter.yaml", "--dirty"]
+    ob = ["ob", "run", "benchmark.yaml", "--filter", "/filter.yaml", "--dirty"]
     for c in host_caps:
         ob += ["--with-capability", c]
     log = open(run / "runner.log", "w")
@@ -301,6 +317,7 @@ def main():
         "image_id": sh("podman", "image", "inspect", "-f", "{{.Id}}", lim["image"]).stdout.strip(),
         "ob_version": sh("podman", "run", "--rm", lim["image"], "ob", "--version").stdout.strip(),
         "data": {ctr: sha256(host) for host, ctr in mounts},
+        "host": host_info(),
         "jobs": [],
     }
 
@@ -366,6 +383,8 @@ def main():
             dst = res / p.relative_to(out)
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(p, dst)
+    if (out / ".metadata").is_dir():   # ob's own record of the run (its host fields are the setup container's)
+        shutil.copytree(out / ".metadata", res / "ob-metadata")
     manifest["ended"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     diagnostics(manifest["jobs"], manifest["envs"])
     (res / "manifest.json").write_text(json.dumps(manifest, indent=1))

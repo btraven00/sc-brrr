@@ -4,38 +4,45 @@ Rules for third-party entries. How to write a module is in [module.md](module.md
 
 ## Submitting
 
-A submission is a pull request that adds or updates one file, `submissions/<account>/<method>.yaml`, containing a single module block for the `pipeline` stage:
+A submission is a pull request to this repo that adds two files under `submissions/<account>/`, named by your method and its version:
+
+- `<name>-<X.Y.Z>.yaml`: one module block for the `pipeline` stage;
+- `<name>-<X.Y.Z>.env.yml`: your method's one conda environment, locked (exact versions).
 
 ```yaml
-id: team_rustfast                     # unique; [a-z0-9_-], must not start with a digit
+# submissions/<account>/rustfast-0.1.0.yaml
+name: "Rust PCA + CAGRA kNN"          # optional, shown on the scoreboard
+tool: cuvs                            # the main library or framework: scanpy, rapids-singlecell, faiss, ...
+runtime: rust                         # python | r | julia | rust | cpp | c | java | go | other
 repository:
   url: https://github.com/<org>/<repo>
   commit: <40-char sha>               # an immutable pin; branches are rejected
-  entrypoint: default
-software_environment: <id>            # declared in the same file
+  entrypoint: default                 # optional, default `default`
 requires_capabilities: [cuda]         # optional: cuda | metal
 parameters:                           # optional: your method's own options, passed as --<name> <value>
   - {solver: randomized, index: cagra}
 ```
 
+`<name>`, `<account>` and `tool` match `[a-z][a-z0-9_-]*`; the version is `X.Y.Z`. `tool` and `runtime` are required: the scoreboard labels and groups entries by them. The device (cpu, cuda, metal) is not declared separately; it comes from `requires_capabilities`.
+
 Your method's own options (solver, index type, precision, …) are yours to set, as one or more parameter sets; each set is scored as its own variant. The protocol's values are fixed by the organisers and set for every entry: 50 PCs, k = 15, Leiden resolution 1.0, the seeds, the replicates and the warm-up. An entry can't override those.
 
 Your module must:
 
-- pass `ob validate module`;
+- live in a public GitHub repository, so the checks and the scorer can fetch it at the pinned commit;
+- pass `ob validate module --strict` (it needs `omnibenchmark.yaml` with your entrypoint, `CITATION.cff` and `LICENSE`);
 - implement the pipeline contract in [module.md](module.md): the input, the three outputs as [`specs/types.yaml`](../../specs/types.yaml) defines them for every replicate, and the obkit phases;
 - have exactly one software environment;
 - need no network access at run time.
 
 ## Queue
 
-Each submission *version* is a PR to the submissions repo, and the open PRs are the queue.
+The open submission PRs are the queue. There are no bots: CI runs static checks, an organiser reviews the code, then scores it by hand on the scoring host.
 
-1. **Checks (GitHub-hosted CI):** schema, `ob validate`, your module's own tests, and the stage contract on a small fixture dataset. If they pass, the PR is labelled `queued`.
-2. **Scoring (a bot on the scoring host):** the scorer takes the oldest `queued` version and runs it next to the baselines, each in its own sandbox. It pushes the results to the results repo and comments on the PR. Your code never runs from a PR trigger.
-3. **Versions:** you have one active version per method, and at most **[TBD: N]** methods per account. A new version replaces the active one on the scoreboard. Older versions stay in the results history, tagged `entry/<account>/<method>/v<k>`.
-
-Ids and names must match `[a-z0-9_-]+`.
+1. **Checks (CI on the PR, nothing of yours runs):** the PR may change only `submissions/<account>/` files. For each changed submission, `./score.py --check` verifies its fields, that every dependency in the env file is pinned to an exact version, your repository at the pinned commit (`ob validate module --strict`, the entrypoint declared and its script present), the benchmark plan with your entry in it (`ob validate plan`), and that the version isn't already scored. Run the same command locally before opening the PR.
+2. **Review:** the organisers read your module at the pinned commit. Nothing runs before that.
+3. **Scoring:** `./score.py submissions/<account>/<name>-<X.Y.Z>.yaml` runs the reference and your entry, each job in its own sandbox, and commits the results to the results repo under `<account>/<name>/<X.Y.Z>/<plan>/<host>/<size>/`. `<plan>` is the first 8 hex digits of the benchmark plan's hash (`ob`'s `summary_hash()`), so a result is pinned to the exact plan it was scored on. `<host>` identifies the scoring machine: the first 8 hex digits of sha256(hostname, CPU model, kernel). The hostname is never published; CPU, kernel, RAM and GPU are, in the manifest. The organisers push it and merge or comment on your PR.
+4. **Versions:** a version is scored once per plan and host. To be scored again after a change, bump the version: a version that already has results on the current plan and host is refused, and so is a scored version whose submission or env file has changed since. When the plan changes (baselines, metrics, data), its hash changes and every active version can be re-scored without a bump. The scoreboard lists every scored version.
 
 ## Scoring
 
@@ -48,11 +55,11 @@ Ids and names must match `[a-z0-9_-]+`.
 
   Entries that miss the gate are listed as `below gate`.
 - **Rank:** median end-to-end walltime among entries that pass the gate, with peak RSS as the tiebreaker. Failed entries are listed last, with the cause.
-- **Frugality** (shown, not ranked): the on-disk size of your conda environment. A 6 GB environment for a 3 s method is worth knowing about.
+- **Bloat** (shown, not ranked): the on-disk size of your conda environment and how many packages it holds. A 6 GB environment for a 3 s method is worth knowing about.
 
 ## Scoreboard
 
-The results repo publishes the scoreboard to GitHub Pages, with one page per host profile. Each scored version is one commit in the results repo: the summary JSON, the manifests (plan, entry, environments, metrics version, profile) and the hashes of the large artefacts. That history is the audit log. If the baselines or the metrics change, all active entries are re-scored, so every row on the board comes from the same versions.
+The results repo publishes the scoreboard to GitHub Pages (`index.md`, written by `./scoreboard.py`), with one table per dataset size and plan. Each scored version is one commit in the results repo: the submission and its environment, the exact plan it ran in, the runner's manifest (repo commit, image id, ob version, limits, data hashes, per-job exit, OOM, timeout and memory peaks, sha256 of every output), the metric records (`metrics.parquet`) and the event and denet traces. The outputs themselves are not in the repo, only their hashes. That history is the audit log. If the baselines or the metrics change, all active entries are re-scored, so every row on the board comes from the same versions.
 
 ## Fair play
 
