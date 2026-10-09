@@ -1,13 +1,15 @@
 # Static checks on a submission PR (docs/challenge/rules.md): nothing submitted runs here.
-# Per changed submissions/<account>/<name>-<X.Y.Z>.yaml: `score.py --check` (fields, env pins,
+# A submission PR adds incoming/<account>/<name>-<X.Y.Z>.yaml (+ .env.yml); merging it queues the entry
+# for the scoring service, which moves it to submissions/ (scored) or failed/ (not scored).
+# Per changed incoming/<account>/<name>-<X.Y.Z>.yaml: `score.py --check` (fields, env pins,
 # the module repo at its pinned commit through `ob validate module --strict` and its entrypoint,
 # `ob validate plan` with the entry in it, and the version gate against the public results repo).
-# Scoring stays manual, on the scoring host: ./score.py <submission>.
+# Scoring runs on the scoring host, never here.
 name: submission
 
 on:
   pull_request:
-    paths: ["submissions/**"]
+    paths: ["incoming/**"]
 
 permissions:
   contents: read   # no secrets, no write token: the PR's code is untrusted
@@ -20,13 +22,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Only submission files changed
+      - name: Only incoming submission files changed
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
-          other=$(git diff --name-only "$BASE"...HEAD | grep -vE '^submissions/[a-z][a-z0-9_-]*/[^/]+\.ya?ml$' || true)
+          other=$(git diff --name-only "$BASE"...HEAD | grep -vE '^incoming/[a-z][a-z0-9_-]*/[^/]+\.ya?ml$' || true)
           if [ -n "$other" ]; then
-            echo "::error::a submission PR changes only submissions/<account>/ files; also changed:"; echo "$other"; exit 1
+            echo "::error::a submission PR changes only incoming/<account>/ files; also changed:"; echo "$other"; exit 1
           fi
 
       - uses: prefix-dev/setup-pixi@v0.8.1
@@ -42,7 +44,7 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           # an env-only change re-checks its submission
-          subs=$(git diff --name-only --diff-filter=AMR "$BASE"...HEAD -- submissions/ \
+          subs=$(git diff --name-only --diff-filter=AMR "$BASE"...HEAD -- incoming/ \
                  | sed 's/\.env\.yml$/.yaml/' | grep '\.yaml$' | sort -u)
           fail=0
           for s in $subs; do

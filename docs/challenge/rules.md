@@ -4,13 +4,13 @@ Rules for third-party entries. How to write a module is in [module.md](module.md
 
 ## Submitting
 
-A submission is a pull request to this repo that adds two files under `submissions/<account>/`, named by your method and its version:
+A submission is a pull request to this repo that adds two files under `incoming/<account>/`, named by your method and its version:
 
 - `<name>-<X.Y.Z>.yaml`: one module block for the `pipeline` stage;
 - `<name>-<X.Y.Z>.env.yml`: your method's one conda environment, locked (exact versions).
 
 ```yaml
-# submissions/<account>/rustfast-0.1.0.yaml
+# incoming/<account>/rustfast-0.1.0.yaml
 name: "Rust PCA + CAGRA kNN"          # optional, shown on the scoreboard
 tool: cuvs                            # the main library or framework: scanpy, rapids-singlecell, faiss, ...
 runtime: rust                         # python | r | julia | rust | cpp | c | java | go | other
@@ -37,11 +37,11 @@ Your module must:
 
 ## Queue
 
-The open submission PRs are the queue. There are no bots: CI runs static checks, an organiser reviews the code, then scores it by hand on the scoring host.
+CI runs static checks on the PR; an organiser reviews the code and merges, which queues the entry in `incoming/`. The scoring service on the scoring host takes the oldest entry, scores it, and moves it to `submissions/` (scored, whether its jobs passed or failed) or to `failed/` with the reason (not scored: rejected at scoring time, or the setup failed before any job ran). A version exists once across the three.
 
-1. **Checks (CI on the PR, nothing of yours runs):** the PR may change only `submissions/<account>/` files. For each changed submission, `./score.py --check` verifies its fields, that every dependency in the env file is pinned to an exact version, your repository at the pinned commit (`ob validate module --strict`, the entrypoint declared and its script present), the benchmark plan with your entry in it (`ob validate plan`), and that the version isn't already scored. Run the same command locally before opening the PR.
-2. **Review:** the organisers read your module at the pinned commit. Nothing runs before that.
-3. **Scoring:** `./score.py submissions/<account>/<name>-<X.Y.Z>.yaml` runs the reference and your entry, each job in its own sandbox, and commits the results to the results repo under `<account>/<name>/<X.Y.Z>/<plan>/<host>/<size>/`. `<plan>` is the first 8 hex digits of the benchmark plan's hash (`ob`'s `summary_hash()`), so a result is pinned to the exact plan it was scored on. `<host>` identifies the scoring machine: the first 8 hex digits of sha256(hostname, CPU model, kernel). The hostname is never published; CPU, kernel, RAM and GPU are, in the manifest. The organisers push it and merge or comment on your PR.
+1. **Checks (CI on the PR, nothing of yours runs):** the PR may change only `incoming/<account>/` files. For each changed submission, `./score.py --check` verifies its fields, that every dependency in the env file is pinned to an exact version, your repository at the pinned commit (`ob validate module --strict`, the entrypoint declared and its script present), the benchmark plan with your entry in it (`ob validate plan`), and that the version isn't already scored. Run the same command locally before opening the PR.
+2. **Review and merge:** the organisers read your module at the pinned commit and merge. Nothing runs before that.
+3. **Scoring:** the scoring service (`score.py` on the oldest entry in `incoming/`) runs the reference and your entry, each job in its own sandbox, and commits the results to the results repo under `<account>/<name>/<X.Y.Z>/<plan>/<host>/<size>/`. `<plan>` is the first 8 hex digits of the benchmark plan's hash (`ob`'s `summary_hash()`), so a result is pinned to the exact plan it was scored on. `<host>` identifies the scoring machine: the first 8 hex digits of sha256(hostname, CPU model, kernel). The hostname is never published; CPU, kernel, RAM and GPU are, in the manifest. It then rebuilds the scoreboard and moves your entry to `submissions/` or `failed/`; a failed entry's reason is in `failed/<account>/<name>-<X.Y.Z>.outcome.json`. To fix a failed entry, submit a new version.
 4. **Versions:** a version is scored once per plan and host. To be scored again after a change, bump the version: a version that already has results on the current plan and host is refused, and so is a scored version whose submission or env file has changed since. When the plan changes (baselines, metrics, data), its hash changes and every active version can be re-scored without a bump. The scoreboard lists every scored version.
 
 ## Scoring
