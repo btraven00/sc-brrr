@@ -83,12 +83,17 @@ These rules match the protocol's fair-play section, and they apply to the baseli
 
 On `apple-silicon` no container can reach the GPU, so entries there are **[TBD: sandboxed with `sandbox-exec`, or accepted only after code review]**.
 
-**How rules are checked:**
+**Good faith.** Your entry times itself: the ranked time is the `replicate` phase your module writes to its event log (the brrr driver does it for Python entries). We don't try to make that tamper-proof; we assume good faith, and check it the way open science checks results: in the open.
+
+- *Code review:* organisers read every entry at its pinned commit before merging it. Nothing runs before that.
+- *Everything is public:* the code, the environment, the event logs and traces of every replicate, and the host-side measurements next to them (container wall time, memory peak, CPU time), which your module can't influence. Anyone can compare them.
+- *Community flagging:* if an entry looks wrong (replicates faster than the work allows, times that don't add up to the container's wall time, results remembered from one replicate to the next, anything in the fair-play list above), open an issue on the challenge repo with the entry and what you found. Organisers re-run the entry, in a fresh process if needed, and decide.
+
+**Also checked:**
 
 - the sandbox itself;
 - denet's process-tree trace (detached children show up);
-- output checks against the input cell ids;
-- a held-out dataset that submitters never see, used to catch entries tuned to the public data **[TBD: from Phase 1, or a later round]**;
-- organisers review the code of every entry before it is merged.
+- output checks against the input cell ids, for every replicate;
+- a held-out dataset that submitters never see, used to catch entries tuned to the public data **[TBD: from Phase 1, or a later round]**.
 
-**Violations:** the entry is removed from the scoreboard, and the removal is recorded in the `scoreboard` branch history together with the reason.
+**Violations:** the entry is removed from the scoreboard, and the removal is recorded in the results repo's history together with the reason.
