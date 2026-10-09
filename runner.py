@@ -406,6 +406,7 @@ def main():
         print("ok" if rc == 0 else f"FAILED (exit {rc}{', OOM' if oom else ''}{', timeout' if timed_out else ''})")
         manifest["jobs"].append({"rule": rule, "cores": cores, "mem_mb": mem, "runtime_min": runtime,
                                  "capabilities": needs.get(mod, []), "env": r.get("conda"), "exit": rc, "oom_killed": oom, "timed_out": timed_out, "sigterm": termed, "wall_s": wall,
+                                 "started": round(t0, 3),   # host clock, for time to first result (collect.py)
                                  "cgroup": cgroup})
 
     files = sorted(p for p in out.rglob("*") if p.is_file() and not p.is_symlink()

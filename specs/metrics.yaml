@@ -49,6 +49,16 @@ metrics:
     formula: "duration of the warm-up chain on the first --warmup_cells cells (the whole input, as the plan sets it), once per job, before the replicates"
     source: driver
     status: implemented
+  - id: time_to_result_s
+    name: Time to first result (cold, with overhead)
+    group: cost
+    vs: none
+    primary: false
+    higher_is_better: false
+    unit: s
+    formula: "the job's container starting (host clock) to the end of the warm-up, which is a full run on the whole input: container start, env activation, imports, load, compilation and one complete run; what a one-off user pays"
+    source: runner + driver
+    status: implemented
   - id: warmup_step_walltime_s
     name: Per-step warm-up walltime (pca, knn, cluster)
     group: cost

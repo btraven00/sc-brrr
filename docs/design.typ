@@ -229,6 +229,7 @@ Built 2026-10-09. All state is in git; nothing of a submission runs on a PR trig
 == Caveats for future changes <scoring-caveats>
 
 - *Inputs are keyed by a size label in the results path* (`<size>`, `10k`). Since the inputs moved to Hugging Face with their sha256 in the plan (2026-10-09), a changed input changes the plan hash, so content is covered; the label only names it. With a second dataset or format at the same size, key the path on the data module id instead.
+- *The plan hash doesn't cover environment contents:* `ob`'s `summary_hash()` hashes the plan's execution-relevant fields (canonical JSON, sha256), and environments enter by file path. A lock file edited in place, same path, keeps the hash. So far every env change came with a pin change; strictly, the hash should include each env file's sha256.
 - *The host id changes with every kernel update* (by design: a kernel can change timings). The same laptop then shows up as a new host.
 - *The submission time* is the committer date of the commit that added the file. With a merge commit that is the submitter's own commit, so it can be set freely; squash-merge makes it the organiser's merge. If order ever decides prizes, use the PR's opened time from the GitHub API.
 - *Env pins:* `name=1.12` passes as exact, but conda reads it as 1.12.\*. Requiring a build string or `==` is stricter but rejects plain `conda env export --no-builds` output.

@@ -38,6 +38,21 @@ def rec(metric, value, subject, rep=None, **attrs):
     return {"metric": metric, "value": value, "subject": subject, "rep": rep, "attrs": attrs or None}
 
 
+def ts(e):
+    return datetime.fromisoformat(e["ts"].replace("Z", "+00:00")).timestamp()
+
+
+def warmup_end(path):
+    """Wall-clock end of the warm-up in a job's main event log: the driver's last warmup:* phase,
+    or the fuser's warmup marker. Container and host share the clock."""
+    end = None
+    for line in path.read_text().splitlines():
+        if line.strip() and (e := json.loads(line))["phase"] == "end" and \
+                (e["event"] == "warmup" or e["event"].startswith("warmup:")):
+            end = ts(e)
+    return end
+
+
 def from_manifest(m, out):
     """Runner measurements. Rule names are the subject dir with /, . and - flattened to _ (snakemake)."""
     dirs = {re.sub(r"[/.-]+", "_", str(p.parent.relative_to(out))).strip("_"): str(p.parent.relative_to(out))
@@ -55,6 +70,10 @@ def from_manifest(m, out):
                 yield rec("vram_peak_mb", dn["vram_peak_mb"], s)
         if (c := j.get("creep")):
             yield rec("memory_growth_mb", c["mb_per_replicate"], s, sd=c["sd"], n=c["n"])
+        # time to first result: the job's container starting (host) to the warm-up's end, a full
+        # cold run on the whole input: container, env activation, imports, load, compile, one run
+        if j.get("started") and (ev := out / s / "obkit-events.jsonl").is_file() and (we := warmup_end(ev)):
+            yield rec("time_to_result_s", round(we - j["started"], 2), s)
         if (e := envs.get(j.get("env"))):
             yield rec("env_size_mb", e["size_mb"], s, env=j["env"])
             n = (e.get("conda_packages") or 0) + (e.get("pip_packages") or 0)
@@ -64,7 +83,6 @@ def from_manifest(m, out):
 def from_events(path, subject, warm=False):
     """Durations of `replicate` and the step phases inside it, and of the warm-up and its steps.
     `warm`: the whole log is a warm-up (the fuser's .fuse/warmup log)."""
-    ts = lambda e: datetime.fromisoformat(e["ts"].replace("Z", "+00:00")).timestamp()
     lines = [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
     staged = any(e["event"].startswith("stage:") for e in lines)  # fused run: only the fuser's phases are steps
     open_, rep, seeds, span = {}, -1, {}, []

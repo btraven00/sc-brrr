@@ -78,11 +78,13 @@ def entry(ds, root):
                       if "cuda" in (sub.get("requires_capabilities") or []) else None,
            "growth_mb": med("memory_growth_mb", 1), "env_mb": v("env_size_mb").max(), "packages": v("env_packages").max(),
            "contract_failed": int((v("contract_ok") == 0).sum()) if len(v("contract_ok")) else None,
-           # every replicate's count where the metric has them (rep set), else the declared outputs'
-           **(lambda c: {"n_clusters": None if c.is_empty() else round(c.median(), 1),
-                         "n_clusters_sd": round(c.std(), 1) if len(c) > 1 else None, "n_clusters_n": len(c)})(
+           # every replicate's count where the metric has them (rep set), else the declared outputs':
+           # the mode, and how far the counts reach above and below it (counts are whole numbers)
+           **(lambda c: {} if not c else {"n_clusters": (m := max(sorted(set(c)), key=c.count)),
+                                          "n_clusters_up": max(c) - m, "n_clusters_down": m - min(c), "n_clusters_n": len(c)})(
                (lambda k: k.filter(pl.col("rep").is_not_null()) if k["rep"].is_not_null().any() else k)(
-                   df.filter(pl.col("metric") == "n_clusters"))["value"]), "path": str(d.relative_to(root) if len(ds) == 1 else d.parents[3].relative_to(root)),   # a baseline: baselines/<id>
+                   df.filter(pl.col("metric") == "n_clusters"))["value"].cast(pl.Int64).to_list()),
+           "time_to_result": med("time_to_result_s", 1), "path": str(d.relative_to(root) if len(ds) == 1 else d.parents[3].relative_to(root)),   # a baseline: baselines/<id>
            "submitted": (json.loads(f.read_text()) if (f := d / "score.json").exists() else {}).get("submitted"),
            "scored": json.loads((d / "manifest.json").read_text()).get("ended")}
     reps = [{"entry": row["entry"], "version": row["version"], "run": r["run"], "size": size, "plan": plan, "host": hid, "rep": r["rep"], "seed": r["seed"],

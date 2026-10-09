@@ -53,6 +53,8 @@
   <h1>sc-brrr scoreboard</h1>
   <p>PCA → kNN → Leiden on single-cell data. Lower is better everywhere. Times are per replicate, in seconds:
      the median over same-seed and different-seed replicates; warm-up is the one-off cold start (imports, JIT, GPU init).
+     1st result: from the job's container starting to the end of the warm-up, a full cold run on the whole input
+     (container, environment, imports, load, compilation, one run): what a one-off run pays. Mem: peak RAM + peak VRAM;
      VRAM: peak GPU memory in use, device-wide, for GPU entries. Growth: memory added per replicate (MB). Device comes from the entry's declared capabilities.
      Bloat (env size, packages) is shown, not ranked. Fidelity gate not computed yet: every entry is listed.
      Every plan is shown together; pick one plan to see only its results. Baselines run on a schedule, and
@@ -71,11 +73,11 @@ const COLS = [
   ["entry", "entry"], ["version", "ver"], ["size", "size / host"], ["status", "status"],
   ["walltime", "time/rep", 3], ["walltime_sd", "± sd", 3],
   ["pca", "pca", 3], ["knn", "knn", 3], ["cluster", "cluster", 3],
-  ["warmup", "warm-up", 1], ["peak_ram_mb", "RAM MB", 0], ["vram_mb", "VRAM MB", 0], ["growth_mb", "growth", 1],
+  ["warmup", "warm-up", 1], ["time_to_result", "1st result", 1], ["mem_mb", "mem MB", 0], ["vram_mb", "VRAM MB", 0], ["growth_mb", "growth", 1],
   ["env_mb", "env MB", 0], ["packages", "pkgs", 0], ["n_clusters", "clust", 0], ["contract_failed", "contract", 0],
   ["submitted", "submitted"],   // date; the scoring date underneath
 ];
-const BARS = new Set(["walltime", "pca", "knn", "cluster", "warmup", "peak_ram_mb", "vram_mb", "env_mb", "packages"]);
+const BARS = new Set(["walltime", "pca", "knn", "cluster", "warmup", "time_to_result", "mem_mb", "vram_mb", "env_mb", "packages"]);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[c]);
 
 function cell(e, [k, , dp], max) {
@@ -85,7 +87,9 @@ function cell(e, [k, , dp], max) {
   if (k === "entry") return `<td title="${esc(e.label)}">${esc(v)}${e.baseline ? '<span class="tag">baseline</span>' : ""}<small>${[e.tool, e.runtime, e.device].map(x => esc(x ?? "?")).join(" · ")}</small></td>`;
   if (k === "submitted") return `<td class="dim" title="submitted ${esc(v ?? "?")}, scored ${esc(e.scored)}">${esc(v?.slice(0, 10) ?? "–")}<small>scored ${esc(e.scored?.slice(0, 10))}</small></td>`;
   if (k === "n_clusters") return v == null ? `<td class="num dim">–</td>` :
-    `<td class="num" title="median ± sd of ${e.n_clusters_n} cluster counts${e.n_clusters_n <= 2 ? " (one per seed arm: stored before every replicate was counted)" : ", one per replicate"}">${Number(v)}${e.n_clusters_sd != null ? ` <span class="dim">±${e.n_clusters_sd}</span>` : ""}</td>`;
+    `<td class="num" title="the most frequent of ${e.n_clusters_n} cluster counts, + up to the largest, − down to the smallest${e.n_clusters_n <= 2 ? " (one count per seed arm: stored before every replicate was counted)" : ", one per replicate"}">${v}<small>+${e.n_clusters_up}/−${e.n_clusters_down}</small></td>`;
+  if (k === "mem_mb") return v == null ? `<td class="num dim">–</td>` :
+    `<td class="num" style="--w:${max[k] ? (100 * v / max[k]).toFixed(1) : 0}%" title="peak RAM ${Math.round(e.peak_ram_mb)} MB${e.vram_mb != null ? " + peak VRAM " + Math.round(e.vram_mb) + " MB (device-wide)" : ""}">${Math.round(v)}</td>`;
   if (k === "size") return `<td class="dim" title="host ${esc(e.host)}: ${esc([e.cpu_model, e.gpu].filter(Boolean).join(" + ") || "no host facts recorded")}">${esc(v)}<small>${esc(e.host)}</small></td>`;
   if (k === "version") return `<td class="dim" title="commit ${esc(e.commit)}${e.baseline ? ", latest of " + e.runs + " runs" : ""}">${esc(v)}<small>plan ${esc(e.plan)}</small></td>`;
   if (dp === undefined) return `<td class="dim">${esc(v)}</td>`;
@@ -127,7 +131,7 @@ function charts(rows, reps, el) {
   const varies = k => new Set(rows.map(r => r[k])).size > 1;
   const label = r => [`${r.entry} ${r.version}`, ...["size", "host", "plan"].filter(varies).map(k => r[k])].join(" · ");
   el.innerHTML = `<div class="wide"><h3>time per replicate (s): every replicate, ◆ median · median step time (s)</h3><div class="c1"></div></div>
-    <div class="wide"><h3>time vs peak RAM, by tool (dot size: env MB)</h3><div class="c3"></div></div>`;
+    <div class="wide"><h3>time vs peak memory (RAM + VRAM), by tool (dot size: env MB)</h3><div class="c3"></div></div>`;
   // one chart, two panels on one y-axis: an entry is one row across both, so they can't drift apart
   const room = Math.min(340, 40 + 6.2 * Math.max(...rows.map(r => label(r).length)));
   const half = Math.max(160, (el.querySelector(".c1").parentElement.clientWidth - room - 60) / 2);
@@ -154,15 +158,15 @@ function charts(rows, reps, el) {
                     tooltip: [{ field: "who" }, { field: "step" }, { field: "value", format: ".3f" }] } }] },
     { actions: false });
   // one colour per tool, results without one (scored before tools were labelled) left out
-  const pts = rows.filter(r => r.walltime != null && r.peak_ram_mb != null && r.tool).map(r => ({ ...r, who: label(r) }));
+  const pts = rows.filter(r => r.walltime != null && r.mem_mb != null && r.tool).map(r => ({ ...r, who: label(r) }));
   embed(el.querySelector(".c3"), { data: { values: pts }, height: 260,
     encoding: { x: { field: "walltime", type: "quantitative", title: "time/rep (s)", scale: { zero: false, padding: 24 }, axis: { tickCount: 10 } },
-                y: { field: "peak_ram_mb", type: "quantitative", title: "peak RAM (MB)", scale: { zero: false, padding: 24 } } },
+                y: { field: "mem_mb", type: "quantitative", title: "peak memory, RAM + VRAM (MB)", scale: { zero: false, padding: 24 } } },
     layer: [
       { mark: { type: "circle", opacity: 0.85 },
         encoding: { size: { field: "env_mb", type: "quantitative", legend: null, scale: { range: [60, 260] } },
                     color: { field: "tool", type: "nominal", title: null, legend: { orient: "bottom", direction: "horizontal" } },
-                    tooltip: [{ field: "who" }, { field: "tool" }, { field: "device" }, { field: "walltime" }, { field: "peak_ram_mb" }, { field: "env_mb" }] } },
+                    tooltip: [{ field: "who" }, { field: "tool" }, { field: "device" }, { field: "walltime" }, { field: "peak_ram_mb" }, { field: "vram_mb" }, { field: "env_mb" }] } },
       { transform: [{ filter: "datum.baseline" }],   // the baselines are the reference points; entries: hover
         mark: { type: "text", align: "left", dx: 9, dy: -7, fontSize: 10, color: "#77725f" },
         encoding: { text: { field: "entry" } } }] });
@@ -171,7 +175,7 @@ function charts(rows, reps, el) {
 const cellsOf = sz => parseFloat(sz) * ({ k: 1e3, m: 1e6 }[sz.slice(-1).toLowerCase()] ?? 1);   // "50k" -> 50000
 
 fetch("scoreboard.json").then(r => r.json()).then(({ generated, entries, reps }) => {
-  entries.forEach(e => e.cells = cellsOf(e.size));
+  entries.forEach(e => { e.cells = cellsOf(e.size); e.mem_mb = e.peak_ram_mb == null ? null : e.peak_ram_mb + (e.vram_mb ?? 0); });
   const sizes = [...new Set(entries.map(e => e.size))].sort((a, b) => cellsOf(a) - cellsOf(b));
   const pick = document.getElementById("size"), hostPick = document.getElementById("host"), planPick = document.getElementById("plan");
   const plans = {};   // newest result per plan first: the current plan leads
