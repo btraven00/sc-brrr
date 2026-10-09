@@ -84,7 +84,14 @@ def entry(ds, root):
                                           "n_clusters_up": max(c) - m, "n_clusters_down": m - min(c), "n_clusters_n": len(c)})(
                (lambda k: k.filter(pl.col("rep").is_not_null()) if k["rep"].is_not_null().any() else k)(
                    df.filter(pl.col("metric") == "n_clusters"))["value"].cast(pl.Int64).to_list()),
-           "time_to_result": med("time_to_result_s", 1), "path": str(d.relative_to(root) if len(ds) == 1 else d.parents[3].relative_to(root)),   # a baseline: baselines/<id>
+           "time_to_result": med("time_to_result_s", 1),
+           # cores busy on average: the cgroup's CPU seconds over the job's wall time, per pipeline job
+           # (whole job: load and warm-up included), median over the entry's jobs
+           "cores": (lambda j: None if j.is_empty() else round(j["c"].median(), 1))(
+               df.filter(pl.col("metric").is_in(["cpu_s", "job_walltime_s"]))
+                 .pivot(on="metric", index=["subject", "run"], values="value", aggregate_function="first")
+                 .filter(pl.col("cpu_s").is_not_null() & (pl.col("job_walltime_s") > 0))
+                 .select(c=pl.col("cpu_s") / pl.col("job_walltime_s")) if {"cpu_s", "job_walltime_s"} <= set(df["metric"]) else pl.DataFrame()), "path": str(d.relative_to(root) if len(ds) == 1 else d.parents[3].relative_to(root)),   # a baseline: baselines/<id>
            "submitted": (json.loads(f.read_text()) if (f := d / "score.json").exists() else {}).get("submitted"),
            "scored": json.loads((d / "manifest.json").read_text()).get("ended")}
     reps = [{"entry": row["entry"], "version": row["version"], "run": r["run"], "size": size, "plan": plan, "host": hid, "rep": r["rep"], "seed": r["seed"],
