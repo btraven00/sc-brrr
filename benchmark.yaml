@@ -8,12 +8,15 @@ api_version: "0.7.0"
 
 software_backend: conda
 software_environments:
-  omni-data: {conda: prep/envs/omni-data.yml}
+  huggingface: {conda: envs/omni-huggingface.yml}   # the data stage: omnibenchmark/omni-huggingface
   scanpy: {conda: envs/scanpy.linux-64.lock.yml}  # x86-nvidia profile; locked from omni-scrna/scanpy's pixi.lock
   rapids: {conda: envs/rapids.linux-64.lock.yml}  # CUDA 13 wheels; locked from rapids-singlecell's pixi.lock
 
 stages:
-  # One module per dataset size. TODO(zenodo): switch to source: zenodo + accession + hash once published.
+  # One module per dataset size, from the published input (huggingface.co/datasets/btraven/sc-brrr-hao2021,
+  # built by prep/benchmark.yaml), pinned to a dataset commit. Jobs have no network: runner.py puts each
+  # picked file in the host's HF cache first (downloaded once, checked against sha256, which the module
+  # itself ignores) and mounts the cache read-only; the module then reads it offline.
   - id: data
     provides: [size]
     outputs:
@@ -21,22 +24,23 @@ stages:
     modules:
       - id: hao2021_10k
         provides: {size: "10k"}
-        software_environment: omni-data
-        repository: {url: https://github.com/btraven00/omni-data, commit: b4d6c62}
+        software_environment: huggingface
+        repository: &hf {url: https://github.com/omnibenchmark/omni-huggingface, commit: dd042df5956fff3a022dde98a0fffa3e5517c503}
         parameters:
-          - {uri: "file:///home/b/phd/sc-brrr/data/prep/hao2021_10k.h5ad", uri_type: file}
+          - &hao2021 {repo: btraven/sc-brrr-hao2021, repo_type: dataset, revision: a61cd45f32445b9a84b6e003d64e463712fbf5af,
+              files: hao2021_10k.h5ad, sha256: 4f4d6f7b1dcc580ff68f18a99c0fd2a8413d610fae5974f85c3099633b9af03c}
       - id: hao2021_50k
         provides: {size: "50k"}
-        software_environment: omni-data
-        repository: {url: https://github.com/btraven00/omni-data, commit: b4d6c62}
+        software_environment: huggingface
+        repository: *hf
         parameters:
-          - {uri: "file:///home/b/phd/sc-brrr/data/prep/hao2021_50k.h5ad", uri_type: file}
+          - {<<: *hao2021, files: hao2021_50k.h5ad, sha256: 0e157b6e1fd185990e7c674b8c68515511ad2d80b4bd43ebc5e5429b53140228}
       - id: hao2021_100k
         provides: {size: "100k"}
-        software_environment: omni-data
-        repository: {url: https://github.com/btraven00/omni-data, commit: b4d6c62}
+        software_environment: huggingface
+        repository: *hf
         parameters:
-          - {uri: "file:///home/b/phd/sc-brrr/data/prep/hao2021_100k.h5ad", uri_type: file}
+          - {<<: *hao2021, files: hao2021_100k.h5ad, sha256: a8cbaaeef5651f699e11dd3719681488b3470b3bd8d8209070bf5cad466f81ad}
 
   # Timed stage. Every method writes the same three files.
   - id: pipeline

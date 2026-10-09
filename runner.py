@@ -29,6 +29,7 @@ import statistics
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 import yaml
@@ -97,6 +98,41 @@ def fetch_fused(plan, cache):
                                 ["git", "-C", str(tmp), "checkout", "-q", "FETCH_HEAD"]):
                         subprocess.run(cmd, check=True)
                     tmp.rename(d)
+
+
+def fetch_hf(plan, picks, cache):
+    """The Hugging Face inputs the filter picks (omni-huggingface modules), put in the HF cache
+    the jobs mount read-only (HF_HUB_CACHE, offline: jobs have no network). A file already there
+    with the plan's sha256 is kept; anything else is downloaded once, here, while the host has
+    network, and checked. Returns {repo@rev/file: sha256} for the manifest."""
+    picked = {m for st in (picks.get("picks") or {}).values() for m in st}
+    got = {}
+    for st in plan["stages"]:
+        for m in st.get("modules", []):
+            if m["id"] not in picked or not str(m.get("repository", {}).get("url", "")).rstrip("/").endswith("omni-huggingface"):
+                continue
+            for p in m.get("parameters") or []:
+                repo, kind, rev = p.get("repo", ""), p.get("repo_type", "model"), str(p.get("revision", ""))
+                name, want = str(p.get("files", "")), str(p.get("sha256", ""))
+                if not (re.fullmatch(r"[0-9a-f]{40}", rev) and re.fullmatch(r"[0-9a-f]{64}", want) and name and not set(name) & set(",*?[")):
+                    sys.exit(f"{m['id']}: a Hugging Face input needs revision (a commit sha), one file in files, and its sha256")
+                f = cache / f"{kind}s--{repo.replace('/', '--')}" / "snapshots" / rev / name   # the HF cache's layout
+                if f.is_file() and sha256(f) == want:
+                    print(f"{name}: in the cache, sha256 ok", flush=True)
+                else:
+                    url = f"https://huggingface.co/{'datasets/' if kind == 'dataset' else ''}{repo}/resolve/{rev}/{name}"
+                    print(f"{name}: downloading {url} ...", end=" ", flush=True)
+                    f.parent.mkdir(parents=True, exist_ok=True)
+                    part = f.with_name(f.name + ".part")
+                    with urllib.request.urlopen(url, timeout=60) as r, open(part, "wb") as o:
+                        shutil.copyfileobj(r, o, 1 << 22)
+                    if (have := sha256(part)) != want:
+                        part.unlink()
+                        sys.exit(f"{name}: sha256 {have} is not the plan's {want}")
+                    part.rename(f)
+                    print("sha256 ok", flush=True)
+                got[f"{repo}@{rev[:7]}/{name}"] = want
+    return got
 
 
 def rules(snakefile):
@@ -285,6 +321,11 @@ def main():
     fused.mkdir(parents=True, exist_ok=True)
     fetch_fused(plan, fused)
     base += ["-v", f"{fused}:/fuse-src:ro", "-e", "BRRR_MODULES=/fuse-src"]
+    # inputs from Hugging Face: one cache per host, filled here; sc-brrr-runner names its own
+    hf = Path(os.environ.get("SC_BRRR_DATA_CACHE") or REPO / lim.get("data_cache", "runs/.hf")).resolve()
+    hf.mkdir(parents=True, exist_ok=True)
+    hf_inputs = fetch_hf(plan, yaml.safe_load(Path(a.filter).read_text()), hf)
+    base += ["-v", f"{hf}:/hf:ro", "-e", "HF_HUB_CACHE=/hf", "-e", "HF_HUB_OFFLINE=1"]
     # conda envs shared across runs, keyed by env-file hash; writable only during setup.
     # ponytail: one cache for every entry; per-entry caches once third-party setups run here
     conda = (REPO / lim.get("conda_cache", "runs/.conda")).resolve()
@@ -316,7 +357,7 @@ def main():
         "image": lim["image"],
         "image_id": sh("podman", "image", "inspect", "-f", "{{.Id}}", lim["image"]).stdout.strip(),
         "ob_version": sh("podman", "run", "--rm", lim["image"], "ob", "--version").stdout.strip(),
-        "data": {ctr: sha256(host) for host, ctr in mounts},
+        "data": {**{ctr: sha256(host) for host, ctr in mounts}, **hf_inputs},
         "host": host_info(),
         "jobs": [],
     }

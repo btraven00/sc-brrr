@@ -69,7 +69,7 @@ Fidelity against the reference is computed in a gather, because only there does 
   [CONVERT], [#tbd[h5ad (native), AnnData zarr, other formats only if entries ask for them; directory formats archived per size]],
 )
 
-Every size in every format, with its sha256 and the prep run metadata, goes to Zenodo (DOI) and is mirrored on Hugging Face. Load time is reported separately from the PCA → Leiden span.
+Every size, with its sha256, is published on Hugging Face (`btraven/sc-brrr-hao2021`, pinned to a dataset commit; the prep plan rebuilds it byte for byte, checked across three runs on 2026-10-09). The scoring plan's data stage is `omnibenchmark/omni-huggingface` with each file's sha256 as a parameter, so the plan hash covers the input's content. Jobs have no network: `runner.py` puts each picked file in the host's input cache first (HF cache layout; kept while its sha256 matches, else downloaded once and checked) and mounts the cache read-only, and the module reads it offline. `sc-brrr-runner` keeps that cache in its own `cache/`. Load time is reported separately from the PCA → Leiden span.
 
 = Resource limits
 
@@ -202,8 +202,7 @@ Built 2026-10-09. All state is in git; nothing of a submission runs on a PR trig
 
 == Caveats for future changes <scoring-caveats>
 
-- *Inputs are keyed by a size label, not by content.* The results path and the version gate use `<size>` (`10k`), and the plan hash covers the data modules' parameters (a `file://` path), not the file. A regenerated file at the same path keeps the plan hash, so the gate would call it already scored. With a second input or format, key on the data module id plus the input's content hash (`<data id>-<sha256[:8]>`; the runner already records the sha256 in the manifest), or move the data to Zenodo with the hash in the plan (the plan's TODO), which puts it into the plan hash.
-- *The plan hash is host-specific* while the data URIs are absolute `file://` paths on the scoring host. Same fix as above.
+- *Inputs are keyed by a size label in the results path* (`<size>`, `10k`). Since the inputs moved to Hugging Face with their sha256 in the plan (2026-10-09), a changed input changes the plan hash, so content is covered; the label only names it. With a second dataset or format at the same size, key the path on the data module id instead.
 - *The host id changes with every kernel update* (by design: a kernel can change timings). The same laptop then shows up as a new host.
 - *The submission time* is the committer date of the commit that added the file. With a merge commit that is the submitter's own commit, so it can be set freely; squash-merge makes it the organiser's merge. If order ever decides prizes, use the PR's opened time from the GitHub API.
 - *Env pins:* `name=1.12` passes as exact, but conda reads it as 1.12.\*. Requiring a build string or `==` is stricter but rejects plain `conda env export --no-builds` output.
