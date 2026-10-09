@@ -56,7 +56,7 @@ stages:
         name: "Reference: scanpy PCA (arpack) -> exact kNN (sklearn brute force) -> Leiden (igraph)"
         software_environment: scanpy
         resources: {cores: 8, mem_mb: 6144, runtime: 20}
-        repository: {url: https://github.com/btraven00/sc-brrr, commit: 76bf3c5, entrypoint: reference}
+        repository: {url: https://github.com/btraven00/sc-brrr, commit: bb6b203, entrypoint: reference}
         parameters:
           - {random_seed: 0, n_components: 50, n_neighbors: 15, resolution: 1.0, replicate: 0}
 
@@ -71,7 +71,7 @@ stages:
         name: "CPU baseline: omni-scrna/scanpy (+ shared-io), PCA (arpack) -> kNN (pynndescent) -> Leiden (igraph), fused"
         software_environment: scanpy
         resources: &baseline {cores: 8, mem_mb: 6144, runtime: 20}   # baselines: 20 min, not the candidates' 5
-        repository: &fuse {url: https://github.com/btraven00/sc-brrr, commit: 76bf3c5, entrypoint: fuse}
+        repository: &fuse {url: https://github.com/btraven00/sc-brrr, commit: bb6b203, entrypoint: fuse}
         parameters:
           # 6 same-seed replicates: nondeterminism, and the timed runs.
           - &scanpy_timed
@@ -127,11 +127,11 @@ stages:
       - id: n_clusters
         name: "Cluster count per run (no reference needed)"
         software_environment: scanpy
-        repository: {url: https://github.com/btraven00/sc-brrr, commit: 76bf3c5, entrypoint: n-clusters}
+        repository: {url: https://github.com/btraven00/sc-brrr, commit: bb6b203, entrypoint: n-clusters}
       - id: contract
         name: "Every output of every replicate against specs/types.yaml"
         software_environment: scanpy
-        repository: {url: https://github.com/btraven00/sc-brrr, commit: 76bf3c5, entrypoint: contract}
+        repository: {url: https://github.com/btraven00/sc-brrr, commit: bb6b203, entrypoint: contract}
 
   # Next increment, once its module exists:
   # - id: report           # global gather -> scoreboard.md (Pages)
