@@ -2,6 +2,14 @@
 
 Computational trade-offs of GPU-accelerated single-cell pipelines (an omni-scrna slice).
 
+- **Scoreboard:** https://btraven00.github.io/sc-brrr-results/ (results and manifests:
+  [sc-brrr-results](https://github.com/btraven00/sc-brrr-results))
+- **Input dataset:** [btraven/sc-brrr-hao2021](https://huggingface.co/datasets/btraven/sc-brrr-hao2021)
+  on Hugging Face: Hao et al. 2021 PBMC at 10k / 50k / 100k cells, with the cell-type ground truth,
+  built by `prep/benchmark.yaml`
+- **Submit an entry:** [docs/challenge/rules.md](docs/challenge/rules.md); entries are scored by
+  [sc-brrr-runner](https://github.com/btraven00/sc-brrr-runner)
+
 - `protocol.typ`: the preregistered protocol
 - `docs/infrastructure.typ`: how runs are executed, limited and measured
 - `docs/challenge/`: instructions for challenge entries
