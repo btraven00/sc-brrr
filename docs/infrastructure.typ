@@ -188,17 +188,32 @@ The baseline and the candidate run in *separate* containers, each restricted to 
 
 = Scoring service
 
-This is modelled on the conda-forge bots. All state is in git, and nothing runs on a trigger from a PR.
+Built and used by hand (2026-10-09). All state is in git; nothing of a submission runs on a PR trigger. A Go service will later automate the manual steps; Python stays the per-entry worker.
 
-+ *Incoming queue.* Each submission *version* is a PR to the submissions repo. GitHub-hosted CI runs the cheap checks: schema, `ob validate`, the module's own tests, and the stage contract on a tiny fixture dataset.
-+ *Scorer daemon* (pull model, on the scoring host). It polls the queue and, for the oldest accepted version: clones the scaffold plan, inserts the baselines and the candidate, runs both through the two-step podman run, computes the metrics, and pushes the results. It uses a bot token that can write only to the results repo. Self-hosted GitHub Actions runners are never used, because they would run PR code on the host.
-+ *Results repo.* One commit per scored version, containing:
-  - the summary JSON;
-  - manifests: plan commit, entry commit, environment lockfiles, metrics module commit, host profile and `--filter` picks;
-  - sha256 hashes of the large artefacts. The artefacts themselves (denet traces, outputs) go to object storage, Hugging Face or Zenodo, keyed by those hashes.
-+ *Scoreboard.* The results repo publishes to GitHub Pages: the `report` stage writes `scoreboard.md` (one page per profile), and Pages renders it straight from the branch, so no build step is needed. A deploy step only becomes necessary for an interactive view. Every field that comes from a submission and is shown on the page (ids, names) is restricted to `[a-z0-9_-]`, because the Pages markdown allows raw HTML.
-+ *Archiving.* There is one *active* version per (account, method), and at most #tbd[N] methods per account. A new version moves the active pointer. Older results stay immutable, tagged `entry/<account>/<method>/v<k>`.
-+ *Re-scoring.* Results are keyed by (entry version, plan version, metrics version, host profile). When the baselines, the metrics or a profile change, the daemon re-runs every active entry in a batch, so the scoreboard never mixes versions.
++ *Submission.* A PR to `sc-brrr` adds `submissions/<account>/<name>-<X.Y.Z>.yaml` (the module block: repo, commit, entrypoint, `tool`, `runtime`, options) and `<name>-<X.Y.Z>.env.yml` (its locked conda env). Rules: `docs/challenge/rules.md`.
++ *Pre-screen (PR CI, `.github/workflows/submission.yml`).* GitHub-hosted, read-only token. The PR may change only `submissions/<account>/` files; then `./score.py --check` per changed submission: the fields, exact pins in the env file, the module repo at the pinned commit (`ob validate module --strict`, the entrypoint declared and its script present), `ob validate plan` with the entry inserted, and the version freeze against the public results repo. Green means well-formed, not safe or correct.
++ *Review and merge.* An organiser reads the module at the pinned commit and merges. The merge is the approval to run it.
++ *Scoring (`./score.py <submission>`, on the scoring host).* Takes `main`'s code and plan, inserts the entry under the protocol's fixed values (two arms: 6 same-seed replicates, 5 seeds), runs the reference and the entry through `runner.py` (one podman container per job), collects the metrics, and commits the result to a checkout of `sc-brrr-results` under `<account>/<name>/<X.Y.Z>/<plan>/<host>/<size>/`. `<plan>`: first 8 hex of ob's `summary_hash()` of the plan before the entry goes in. `<host>`: first 8 hex of sha256(hostname, CPU model, kernel), computed by the runner on the host; the hostname is not published.
++ *Results repo* (public, `btraven00/sc-brrr-results`). One commit per scored version: the submission and its env, the exact plan, the runner's `manifest.json` (repo commit, image id, ob version, limits, host facts, data hashes, per-job exit / OOM / timeout / memory peaks, sha256 of every output), ob's `.metadata` (`ob-metadata/`), `metrics.parquet`, the obkit and denet traces, and `score.json` (when the submission entered the repo). About 350 KB per result; outputs are not stored, only their hashes.
++ *Scoreboard.* `./scoreboard.py <results>` writes `scoreboard.json`, `results.parquet` (every record of every result, one table) and the static page (`scoreboard/index.html`); GitHub Pages serves them. Fields from submissions are escaped on the page.
++ *Versions.* A version is scored once per (plan, host, size): a second run is refused, so a change needs a version bump. Once scored, a version is frozen everywhere: its submission and env file must stay byte-identical, which `--check` enforces in CI. A new plan hash allows re-scoring every version against it.
+
+Planned flow for the service: a merged PR lands in `incoming/` (the queue); the service scores the oldest entry with `score.py`, pushes the result and the scoreboard, and moves the entry to `submissions/` (the log of scored entries). A setup failure leaves it in `incoming/`. For that, `score.py` needs distinct exit codes (scored ok / scored with failed jobs / rejected / setup failed), a JSON outcome line and a mode without git side effects.
+
+== Caveats for future changes <scoring-caveats>
+
+- *Inputs are keyed by a size label, not by content.* The results path and the version gate use `<size>` (`10k`), and the plan hash covers the data modules' parameters (a `file://` path), not the file. A regenerated file at the same path keeps the plan hash, so the gate would call it already scored. With a second input or format, key on the data module id plus the input's content hash (`<data id>-<sha256[:8]>`; the runner already records the sha256 in the manifest), or move the data to Zenodo with the hash in the plan (the plan's TODO), which puts it into the plan hash.
+- *The plan hash is host-specific* while the data URIs are absolute `file://` paths on the scoring host. Same fix as above.
+- *The host id changes with every kernel update* (by design: a kernel can change timings). The same laptop then shows up as a new host.
+- *The submission time* is the committer date of the commit that added the file. With a merge commit that is the submitter's own commit, so it can be set freely; squash-merge makes it the organiser's merge. If order ever decides prizes, use the PR's opened time from the GitHub API.
+- *Env pins:* `name=1.12` passes as exact, but conda reads it as 1.12.\*. Requiring a build string or `==` is stricter but rejects plain `conda env export --no-builds` output.
+- *The env file lives in `sc-brrr`, not the module repo,* so it is not bound to the module's commit; a mismatch shows up in review or at run time.
+- *The setup step has network* and builds the env, running package install scripts before any timed job. Review before merge is the only gate there.
+- *No fidelity gate yet:* kNN purity, edge Jaccard and ARI against the reference are `planned`, so every entry is listed. Speed-up against the same-job baselines (rules.md) is not computed either: a scoring run includes the reference, not the baselines.
+- *No denet trace for external entries:* only this repo's entrypoints run under `brrr/prof.sh`. Peak memory still comes from the cgroup.
+- *The protocol's values are duplicated* in `score.py` (`PROTOCOL`, `ARMS`) and in the baselines' parameters in `benchmark.yaml`.
+- *CI runs the PR's copy of `score.py`.* The "only submission files changed" step keeps a PR from editing it, and the job has no secrets.
+- *Pre-rewrite pins:* `exact-ref` 0.1.0 to 0.1.2 in the results repo pin `sc-brrr@76bf3c5`, which no longer exists after the 2026-10-09 history rewrite (now `bb6b203`, same code). Results are frozen, so they stay as scored.
 
 == Live progress (low priority) <live>
 

@@ -125,6 +125,8 @@ def with_entry(plan, sub, name, path):
     return plan
 
 
+# ponytail: keyed by the size label; key on <data id>-<input sha256[:8]> once there is a second input
+# or format (docs/infrastructure.typ, Caveats for future changes)
 def gate(results, acct, name, ver, phash, hid, size, path):
     """None if this version may be scored on this plan, host and size, else why not.
     A scored version is frozen: its submission and env file, byte for byte, on every host.
