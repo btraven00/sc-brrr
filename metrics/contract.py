@@ -109,7 +109,9 @@ def main():
             subject = next(d for d in by_dir if str(path.parent).endswith(d))
             data_dir = path.parent.parents[2]  # data/<size>/.<hash>/pipeline/<module>/.<params>
             if data_dir not in inputs:
-                inputs[data_dir] = list(ad.read_h5ad(next(data_dir.glob("*.h5ad")), backed="r").obs_names)
+                # the data stage's declared output, <module id>.h5ad: its dir may hold other files too
+                # (omni-huggingface mirrors every cached file of the dataset's snapshot)
+                inputs[data_dir] = list(ad.read_h5ad(data_dir / f"{data_dir.parent.name}.h5ad", backed="r").obs_names)
             params = json.loads((path.parent / "parameters.json").read_text())
             name = re.sub(r"_clusters\.tsv$", "", path.name)
             for rep, tid, ok, detail in check_run(path.parent, name, inputs[data_dir], params):

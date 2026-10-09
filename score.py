@@ -69,8 +69,8 @@ PIP_PIN = re.compile(r"[A-Za-z0-9_.-]+(?:\[[^\]]*\])?\s*==\s*[0-9][^\s,<>|*;]*")
 def check(sub, path, plan):
     """The submission's own fields; returns the problems found."""
     acct, errs = path.parent.name, []
-    if not ID.fullmatch(acct):
-        errs.append(f"account must match {ID.pattern}: {acct}")
+    if not ID.fullmatch(acct) or acct == "baselines":
+        errs.append(f"account must match {ID.pattern} and not be 'baselines' (reserved): {acct}")
     if not (m := NAME_VER.fullmatch(path.stem)):
         return errs + [f"file name must be <name>-<X.Y.Z>.yaml, <name> matching {ID.pattern}: {path.name}"]
     if not isinstance(sub, dict):
@@ -185,26 +185,44 @@ def done(outcome, reason, **kw):
     sys.exit(CODES[outcome])
 
 
+# The plan's baselines as results of their own (score.py --baseline ID): fused omni-scrna modules, so
+# their labels can't come from a submission file. Device is the module's requires_capabilities.
+BASELINES = {"rsc": {"tool": "rapids-singlecell", "runtime": "python"},
+             "scanpy": {"tool": "scanpy", "runtime": "python"}}
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("submission", type=Path)
+    ap.add_argument("submission", type=Path, nargs="?")
+    ap.add_argument("--baseline", choices=sorted(BASELINES), help="score the plan's own baseline instead of a submission")
     ap.add_argument("--size", default="10k")
     ap.add_argument("--plan", default=str(REPO / "benchmark.yaml"))
     ap.add_argument("--results", type=Path, default=REPO.parent / "sc-brrr-results")
     ap.add_argument("--check", action="store_true", help="static checks only; nothing submitted runs")
     ap.add_argument("--no-commit", action="store_true", help="write the result, leave committing to the caller")
     a = ap.parse_args()
+    if bool(a.submission) == bool(a.baseline):
+        ap.error("give a submission file or --baseline, not both")
+    plan = yaml.safe_load(Path(a.plan).read_text())
+    phash = plan_hash(a.plan)   # before an entry goes in
+    if not (a.results / ".git").is_dir() and not a.check:
+        sys.exit(f"{a.results} is not a git checkout (git init it, or clone the results repo)")
+
+    if a.baseline:   # a run of the plan as it is; every run is kept (the run time takes the version's place)
+        mod = next(m for st in plan["stages"] if st["id"] == "pipeline" for m in st["modules"] if m["id"] == a.baseline)
+        acct, name, ver = "baselines", a.baseline, time.strftime("%Y%m%dT%H%M")
+        sub = {"name": mod.get("name"), **BASELINES[a.baseline], "baseline": True, "repository": mod["repository"],
+               "requires_capabilities": mod.get("requires_capabilities", []), "parameters": mod.get("parameters")}
+        env = REPO / plan["software_environments"][mod["software_environment"]]["conda"]
+        return run_and_store(a, plan, phash, acct, name, ver, sub, env, submitted=None)
 
     path = a.submission.resolve()
-    sub, plan = yaml.safe_load(path.read_text()), yaml.safe_load(Path(a.plan).read_text())
+    sub = yaml.safe_load(path.read_text())
     if errs := check(sub, path, plan):
         done("rejected", f"{path.relative_to(REPO)}: rejected: " + "; ".join(errs))
-    acct, (name, ver), sha = path.parent.name, NAME_VER.fullmatch(path.stem).groups(), sub["repository"]["commit"]
-    phash = plan_hash(a.plan)   # before the entry goes in
+    acct, (name, ver) = path.parent.name, NAME_VER.fullmatch(path.stem).groups()
     hid = None if a.check else host_info()["id"]
     have_results = (a.results / ".git").is_dir()
-    if not have_results and not a.check:
-        sys.exit(f"{a.results} is not a git checkout (git init it, or clone the results repo)")
     if have_results and (why := gate(a.results, acct, name, ver, phash, hid, a.size, path)):
         done("rejected", why)
     plan = with_entry(plan, sub, name, path)
@@ -227,6 +245,16 @@ def main():
             done("rejected", f"{acct}/{name} {ver}: rejected: " + "; ".join(errs))
         done("ok", f"{acct}/{name} {ver}: checks passed (plan {phash}); not run, not scored", plan=phash)
 
+    # when the submission first entered this repo's history (the PR's commit; its date is the committer's)
+    added = subprocess.run(["git", "-C", str(REPO), "log", "--diff-filter=A", "--format=%H %cI", "--", str(path)],
+                           capture_output=True, text=True).stdout.split("\n")[0].split()
+    run_and_store(a, plan, phash, acct, name, ver, sub, path.with_suffix(".env.yml"),
+                  submitted=added[1] if added else None, submission_commit=added[0] if added else None)
+
+
+def run_and_store(a, plan, phash, acct, name, ver, sub, env, **score):
+    """Run the reference and `name` through the runner, collect, and store the result in the results checkout."""
+    hid = host_info()["id"]
     picks = {"picks": {"data": {f"hao2021_{a.size}": "all"}, "pipeline": {"reference": "all", name: "all"},
                        "metrics": {"n_clusters": "all", "contract": "all"}}}
     run_id = f"{acct}-{name}-{ver}-{a.size}-{time.strftime('%Y%m%dT%H%M%S')}"
@@ -246,14 +274,11 @@ def main():
 
     dst = a.results / acct / name / ver / phash / hid / a.size
     shutil.copytree(res, dst)
-    shutil.copy(path, dst / "submission.yaml")
-    shutil.copy(path.with_suffix(".env.yml"), dst / "env.yml")
+    (dst / "submission.yaml").write_text(yaml.safe_dump(sub, sort_keys=False))
+    shutil.copy(env, dst / "env.yml")
     shutil.copy(plan_f, dst / "benchmark.yaml")
-    # when the submission first entered this repo's history (the PR's commit; its date is the committer's)
-    added = subprocess.run(["git", "-C", str(REPO), "log", "--diff-filter=A", "--format=%H %cI", "--", str(path)],
-                           capture_output=True, text=True).stdout.split("\n")[0].split()
-    (dst / "score.json").write_text(json.dumps({"submitted": added[1] if added else None,
-                                                "submission_commit": added[0] if added else None, "run": run_id}, indent=1))
+    (dst / "score.json").write_text(json.dumps({**score, "run": run_id}, indent=1))
+    sha = str(sub["repository"].get("commit", ""))
     msg = f"{acct}/{name} {ver} ({sha[:7]}) plan {phash} host {hid} {a.size}: {'ok' if ok else 'failed jobs'} (run {run_id})"
     if not a.no_commit:
         git = ["git", "-C", str(a.results)]

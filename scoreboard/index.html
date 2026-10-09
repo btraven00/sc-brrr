@@ -32,13 +32,15 @@
   .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 24px; margin-top: 20px; }
   .charts h3 { font-size: 12px; font-weight: 600; margin: 0 0 6px; color: var(--mute); }
   .controls { margin: 20px 0 0; display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; }
-  select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); padding: 2px 6px; margin-left: 6px; }
+  select { max-width: 360px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); padding: 2px 6px; margin-left: 6px; }
   a { color: var(--ink); }
   /* corner ribbon: the way in for new entries */
   .ribbon { position: fixed; top: 22px; right: -46px; width: 190px; transform: rotate(45deg); z-index: 10;
             background: var(--ink); color: var(--bg); text-align: center; padding: 5px 0; font-weight: 600;
             text-decoration: none; letter-spacing: .04em; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); }
   .ribbon:hover { background: #4c6a92; }
+  tr.baseline td { background-color: #f3eedd; }
+  .tag { font-size: 10px; border: 1px solid var(--rule); padding: 0 4px; margin-left: 6px; color: var(--mute); }
   footer { margin-top: 48px; color: var(--mute); }
 </style>
 </head>
@@ -50,8 +52,11 @@
      the median over same-seed and different-seed replicates; warm-up is the one-off cold start (imports, JIT, GPU init).
      Growth: memory added per replicate (MB). Device comes from the entry's declared capabilities.
      Bloat (env size, packages) is shown, not ranked. Fidelity gate not computed yet: every entry is listed.
+     Every plan is shown together; pick one plan to see only its results. Baselines run on a schedule, and
+     their row pools every replicate of every run (their spread includes the spread over runs).
      Click a column to sort.</p>
-  <div class="controls"><label>input size <select id="size"></select></label>
+  <div class="controls"><label>plan <select id="plan"></select></label>
+    <label>input size <select id="size"></select></label>
     <label>host <select id="host"></select></label>
     <a class="dl" href="results.parquet" download>download all results (parquet)</a></div>
   <div id="boards"><p>loading scoreboard.json …</p></div>
@@ -74,10 +79,10 @@ function cell(e, [k, , dp], max) {
   const v = e[k];
   if (k === "status") return `<td class="${v === "ok" ? "ok" : "bad"}">${esc(v)}</td>`;
   if (k === "contract_failed") return v == null ? `<td class="dim">–</td>` : `<td class="${v ? "bad" : "ok"}">${v ? v + " failed" : "ok"}</td>`;
-  if (k === "entry") return `<td title="${esc(e.label)}">${esc(v)}<small>${[e.tool, e.runtime, e.device].map(x => esc(x ?? "?")).join(" · ")}</small></td>`;
+  if (k === "entry") return `<td title="${esc(e.label)}">${esc(v)}${e.baseline ? '<span class="tag">baseline</span>' : ""}<small>${[e.tool, e.runtime, e.device].map(x => esc(x ?? "?")).join(" · ")}</small></td>`;
   if (k === "submitted") return `<td class="dim" title="submitted ${esc(v ?? "?")}, scored ${esc(e.scored)}">${esc(v?.slice(0, 10) ?? "–")}<small>scored ${esc(e.scored?.slice(0, 10))}</small></td>`;
   if (k === "size") return `<td class="dim" title="host ${esc(e.host)}: ${esc([e.cpu_model, e.gpu].filter(Boolean).join(" + ") || "no host facts recorded")}">${esc(v)}<small>${esc(e.host)}</small></td>`;
-  if (k === "version") return `<td class="dim" title="commit ${esc(e.commit)}">${esc(v)}</td>`;
+  if (k === "version") return `<td class="dim" title="commit ${esc(e.commit)}${e.baseline ? ", latest of " + e.runs + " runs" : ""}">${esc(v)}<small>plan ${esc(e.plan)}</small></td>`;
   if (dp === undefined) return `<td class="dim">${esc(v)}</td>`;
   if (v == null) return `<td class="num dim">–</td>`;
   const w = BARS.has(k) && max[k] ? (100 * v / max[k]).toFixed(1) + "%" : "0%";
@@ -94,7 +99,7 @@ function table(rows, el) {
       || ((a[key] == null) - (b[key] == null)) || (val(a) < val(b) ? -dir : val(a) > val(b) ? dir : 0));
     el.innerHTML = `<table><thead><tr>${COLS.map(([k, h]) =>
       `<th data-k="${k}" class="${k === key ? "on" : ""}" data-dir="${dir > 0 ? "▲" : "▼"}">${h}</th>`).join("")}</tr></thead>
-      <tbody>${s.map(e => `<tr>${COLS.map(c => cell(e, c, max)).join("")}</tr>`).join("")}</tbody></table>`;
+      <tbody>${s.map(e => `<tr${e.baseline ? ' class="baseline"' : ""}>${COLS.map(c => cell(e, c, max)).join("")}</tr>`).join("")}</tbody></table>`;
     el.querySelectorAll("th").forEach(th => th.onclick = () => {
       dir = th.dataset.k === key ? -dir : 1; key = th.dataset.k; draw();
     });
@@ -114,10 +119,10 @@ const embed = (el, spec) => vegaEmbed(el, { $schema: "https://vega.github.io/sch
 function charts(rows, reps, el) {
   // size and host in the label only when the shown results differ in them
   const varies = k => new Set(rows.map(r => r[k])).size > 1;
-  const label = r => [`${r.entry} ${r.version}`, ...["size", "host"].filter(varies).map(k => r[k])].join(" · ");
+  const label = r => [`${r.entry} ${r.version}`, ...["size", "host", "plan"].filter(varies).map(k => r[k])].join(" · ");
   el.innerHTML = `<div><h3>time per replicate (s), every replicate</h3><div class="c1"></div></div>
     <div><h3>median step time (s)</h3><div class="c2"></div></div>
-    <div><h3>time vs peak RAM (dot size: env MB)</h3><div class="c3"></div></div>`;
+    <div><h3>time vs peak RAM, by tool (dot size: env MB)</h3><div class="c3"></div></div>`;
   const totals = reps.filter(r => r.step === "total").map(r => ({ ...r, who: label(r) }));
   embed(el.querySelector(".c1"), { data: { values: totals }, height: { step: 22 },
     layer: [
@@ -137,12 +142,13 @@ function charts(rows, reps, el) {
                 order: { field: "i" },   // pipeline order, not alphabetical
                 tooltip: [{ field: "who" }, { field: "step" }, { field: "value", format: ".3f" }] } });
   embed(el.querySelector(".c3"), { data: { values: rows.filter(r => r.walltime != null).map(r => ({ ...r, who: label(r) })) },
-    height: 220, mark: { type: "circle", opacity: 0.8 },
+    height: 220, mark: { type: "point", filled: true, opacity: 0.8 },
     encoding: { x: { field: "walltime", type: "quantitative", title: "time/rep (s)", scale: { zero: false } },
                 y: { field: "peak_ram_mb", type: "quantitative", title: "peak RAM (MB)", scale: { zero: false } },
                 size: { field: "env_mb", type: "quantitative", legend: null, scale: { range: [40, 600] } },
-                color: { field: "who", type: "nominal", legend: null },
-                tooltip: [{ field: "who" }, { field: "walltime" }, { field: "peak_ram_mb" }, { field: "env_mb" }] } });
+                color: { field: "tool", type: "nominal", title: null, legend: { orient: "bottom", direction: "horizontal" } },
+                shape: { field: "device", type: "nominal", title: null, legend: { orient: "bottom", direction: "horizontal" } },
+                tooltip: [{ field: "who" }, { field: "tool" }, { field: "device" }, { field: "walltime" }, { field: "peak_ram_mb" }, { field: "env_mb" }] } });
 }
 
 const cellsOf = sz => parseFloat(sz) * ({ k: 1e3, m: 1e6 }[sz.slice(-1).toLowerCase()] ?? 1);   // "50k" -> 50000
@@ -150,7 +156,11 @@ const cellsOf = sz => parseFloat(sz) * ({ k: 1e3, m: 1e6 }[sz.slice(-1).toLowerC
 fetch("scoreboard.json").then(r => r.json()).then(({ generated, entries, reps }) => {
   entries.forEach(e => e.cells = cellsOf(e.size));
   const sizes = [...new Set(entries.map(e => e.size))].sort((a, b) => cellsOf(a) - cellsOf(b));
-  const pick = document.getElementById("size"), hostPick = document.getElementById("host");
+  const pick = document.getElementById("size"), hostPick = document.getElementById("host"), planPick = document.getElementById("plan");
+  const plans = {};   // newest result per plan first: the current plan leads
+  entries.forEach(e => plans[e.plan] = [e.scored, ...(plans[e.plan] ?? [])].sort().reverse()[0]);
+  planPick.innerHTML = `<option value="">all</option>` + Object.entries(plans).sort((a, b) => (b[1] ?? "").localeCompare(a[1] ?? ""))
+    .map(([pl, t]) => `<option value="${esc(pl)}">${esc(pl)} (latest ${esc((t ?? "").slice(0, 10))})</option>`).join("");
   pick.innerHTML = `<option value="">all</option>` + sizes.map(z => `<option>${esc(z)}</option>`).join("");
   const hosts = {};
   entries.forEach(e => hosts[e.host] ??= [e.cpu_model, e.gpu].filter(Boolean).join(" + "));
@@ -158,21 +168,19 @@ fetch("scoreboard.json").then(r => r.json()).then(({ generated, entries, reps })
     .map(([h, hw]) => `<option value="${esc(h)}">${esc(h)}${hw ? " · " + esc(hw) : ""}</option>`).join("");
   const boards = document.getElementById("boards");
   const render = () => {
-    const size = pick.value, hid = hostPick.value;
-    const rows = entries.filter(e => (!size || e.size === size) && (!hid || e.host === hid));
-    const groups = {};
-    rows.forEach(e => (groups[e.plan] ??= []).push(e));
-    boards.innerHTML = rows.length ? "" : "<p>no results yet</p>";
-    Object.entries(groups).sort().forEach(([plan, rs]) => {
-      const sec = document.createElement("section");
-      sec.innerHTML = `<h2>plan ${esc(plan)} <span class="dim">· ${size ? esc(size) + " cells" : "all sizes"} · ${hid ? "host " + esc(hid) : "all hosts"} · ${rs.length} result${rs.length === 1 ? "" : "s"}</span></h2>
-        <div class="wrap"></div><div class="charts"></div>`;
-      boards.append(sec);
-      table(rs, sec.querySelector(".wrap"));
-      charts(rs, reps.filter(r => r.plan === plan && (!size || r.size === size) && (!hid || r.host === hid)), sec.querySelector(".charts"));
-    });
+    const size = pick.value, hid = hostPick.value, plan = planPick.value;
+    const keep = x => (!size || x.size === size) && (!hid || x.host === hid) && (!plan || x.plan === plan);
+    const rows = entries.filter(keep);
+    boards.innerHTML = rows.length ? "" : "<p>no results for this selection</p>";
+    if (!rows.length) return;
+    const sec = document.createElement("section");
+    sec.innerHTML = `<h2>${plan ? "plan " + esc(plan) : "all plans"} <span class="dim">· ${size ? esc(size) + " cells" : "all sizes"} · ${hid ? "host " + esc(hid) : "all hosts"} · ${rows.length} result${rows.length === 1 ? "" : "s"}</span></h2>
+      <div class="wrap"></div><div class="charts"></div>`;
+    boards.append(sec);
+    table(rows, sec.querySelector(".wrap"));
+    charts(rows, reps.filter(keep), sec.querySelector(".charts"));
   };
-  pick.onchange = hostPick.onchange = render;
+  pick.onchange = hostPick.onchange = planPick.onchange = render;
   render();
   document.getElementById("foot").innerHTML = `generated ${esc(generated)} from ${entries.length} scored versions · download:
     <a href="results.parquet" download>results.parquet</a> (every record, long format) ·
