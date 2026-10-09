@@ -176,7 +176,8 @@ fetch("scoreboard.json").then(r => r.json()).then(({ generated, entries, reps })
   render();
   document.getElementById("foot").innerHTML = `generated ${esc(generated)} from ${entries.length} scored versions · download:
     <a href="results.parquet" download>results.parquet</a> (every record, long format) ·
-    <a href="scoreboard.json">scoreboard.json</a> (this page's summary)`;
+    <a href="scoreboard.json">scoreboard.json</a> (this page's summary) ·
+    every result, manifest and trace: <a href="https://github.com/btraven00/sc-brrr-results">btraven00/sc-brrr-results</a>`;
 }).catch(e => { document.getElementById("boards").innerHTML = `<p>could not load scoreboard.json: ${esc(e)}</p>`; });
 </script>
 </body>
