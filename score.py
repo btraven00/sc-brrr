@@ -248,11 +248,11 @@ def main():
     # when the submission first entered this repo's history (the PR's commit; its date is the committer's)
     added = subprocess.run(["git", "-C", str(REPO), "log", "--diff-filter=A", "--format=%H %cI", "--", str(path)],
                            capture_output=True, text=True).stdout.split("\n")[0].split()
-    run_and_store(a, plan, phash, acct, name, ver, sub, path.with_suffix(".env.yml"),
+    run_and_store(a, plan, phash, acct, name, ver, sub, path.with_suffix(".env.yml"), src=path,
                   submitted=added[1] if added else None, submission_commit=added[0] if added else None)
 
 
-def run_and_store(a, plan, phash, acct, name, ver, sub, env, **score):
+def run_and_store(a, plan, phash, acct, name, ver, sub, env, src=None, **score):
     """Run the reference and `name` through the runner, collect, and store the result in the results checkout."""
     hid = host_info()["id"]
     picks = {"picks": {"data": {f"hao2021_{a.size}": "all"}, "pipeline": {"reference": "all", name: "all"},
@@ -274,7 +274,11 @@ def run_and_store(a, plan, phash, acct, name, ver, sub, env, **score):
 
     dst = a.results / acct / name / ver / phash / hid / a.size
     shutil.copytree(res, dst)
-    (dst / "submission.yaml").write_text(yaml.safe_dump(sub, sort_keys=False))
+    # a submission's own file, byte for byte (the freeze compares bytes); a baseline has none: its labels
+    if src:
+        shutil.copy(src, dst / "submission.yaml")
+    else:
+        (dst / "submission.yaml").write_text(yaml.safe_dump(sub, sort_keys=False))
     shutil.copy(env, dst / "env.yml")
     shutil.copy(plan_f, dst / "benchmark.yaml")
     (dst / "score.json").write_text(json.dumps({**score, "run": run_id}, indent=1))
