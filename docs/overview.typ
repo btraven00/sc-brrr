@@ -35,7 +35,7 @@ A version is scored once per plan and machine. A change needs a new version; a c
 
 - *One container per job,* no network, capped in cores, memory and time; the GPU only for entries that need it. Every step of the run, scoring included, is a job of its own.
 - *Input:* the published dataset (Hao et al. 2021 PBMC at 10k / 50k / 100k cells, with the cell-type ground truth), pinned by hash, downloaded once per machine.
-- *Inside the entry's job:* a warm-up on 5,000 cells (the cold start), then the replicates in the same process: 6 with the same seed (the timed runs, nondeterminism) and 5 with seeds 1 to 5 (seed sensitivity). The time of a replicate is PCA → kNN → Leiden; loading and writing are outside it. Outputs are written after each replicate.
+- *Inside the entry's job:* a warm-up on the whole input (the cold start: imports, compilation, GPU initialisation), then the replicates in the same process: 6 with the same seed (the timed runs, nondeterminism) and 5 with seeds 1 to 5 (seed sensitivity). The time of a replicate is PCA → kNN → Leiden; loading and writing are outside it. Outputs are written after each replicate.
 - *Afterwards,* in separate containers: the outputs of every replicate are checked against the output contract, and the metrics are computed.
 
 = What is measured, and how far it can be trusted

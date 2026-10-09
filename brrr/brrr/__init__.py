@@ -190,7 +190,9 @@ def run(pipeline: Pipeline, sync: Optional[Callable[[], None]] = None,
         ids = list(adata.obs_names)
         if a.warmup_cells:
             _prefix = "warmup:"
-            pipeline(adata[: a.warmup_cells].copy(), base)
+            # N >= the input: the whole input, as loaded (no copy, which would double memory at large sizes);
+            # the steps are pure, so the timed replicates start from the same data
+            pipeline(adata if a.warmup_cells >= adata.n_obs else adata[: a.warmup_cells].copy(), base)
             _prefix = ""
         for r in range(a.replicates):
             state["replicate"] = r

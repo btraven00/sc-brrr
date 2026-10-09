@@ -15,7 +15,7 @@ The plan calls your entrypoint with:
 | `--random_seed` | the seed of replicate 0 |
 | `--n_components`, `--n_neighbors`, `--resolution` | fixed by the organisers: 50, 15, 1.0 |
 | `--replicates`, `--seed_stride` | run the pipeline this many times in one process; replicate r uses `random_seed + r * seed_stride` |
-| `--warmup_cells` | first run the whole pipeline on this many cells and discard it (imports, JIT, GPU initialisation) |
+| `--warmup_cells` | first run the whole pipeline on the first N cells and discard it (imports, JIT, GPU initialisation). The protocol passes 10,000,000, more than any input: the warm-up is the whole input, so it compiles exactly what the timed replicates run |
 | `--<option> <value>` | your method's own options, from the `parameters` of your submission (solver, index type, …) |
 
 and expects:
@@ -72,7 +72,7 @@ startup and compilation count toward its time.
 
 ```sh
 python method.py --data_h5ad data.h5ad --output_dir out --name test \
-  --warmup_cells 5000 --replicates 3 --seed_stride 1
+  --warmup_cells 10000000 --replicates 3 --seed_stride 1
 ob validate module .
 ```
 

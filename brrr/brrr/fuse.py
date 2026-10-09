@@ -215,7 +215,8 @@ def main(argv=None):
     # Input in the format the first stage reads: written once, before any phase (untimed).
     adata = ad.read_h5ad(a.data_h5ad)
     write_omni_h5(adata, work / "input.h5")
-    if a.warmup_cells:
+    whole = a.warmup_cells >= adata.n_obs   # the whole input: warm up on input.h5 itself
+    if a.warmup_cells and not whole:
         write_omni_h5(adata[: a.warmup_cells], work / "warmup.h5")
     del adata
     h = Handoff(a.module)
@@ -225,7 +226,7 @@ def main(argv=None):
         if a.warmup_cells:
             real_init(str(work / "warmup"))
             with phase("warmup"):
-                run(work / "warmup.h5", work / "warmup", a.random_seed)
+                run(work / ("input.h5" if whole else "warmup.h5"), work / "warmup", a.random_seed)
             h.flush()
         real_init(str(out))
         if a.warmup_cells:  # one marker in the main log, so its timeline shows the warm-up

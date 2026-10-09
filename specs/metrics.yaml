@@ -46,7 +46,7 @@ metrics:
     primary: false
     higher_is_better: false
     unit: s
-    formula: "duration of the warm-up chain on the first --warmup_cells cells, once per job, before the replicates"
+    formula: "duration of the warm-up chain on the first --warmup_cells cells (the whole input, as the plan sets it), once per job, before the replicates"
     source: driver
     status: implemented
   - id: warmup_step_walltime_s

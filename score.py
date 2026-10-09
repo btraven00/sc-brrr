@@ -53,7 +53,7 @@ REPO = Path(__file__).resolve().parent
 ID = re.compile(r"[a-z][a-z0-9_-]*")
 NAME_VER = re.compile(r"([a-z][a-z0-9_-]*)-(\d+\.\d+\.\d+)")
 # ponytail: the protocol's values live here and in benchmark.yaml's baselines; one place once a scaffold plan exists
-PROTOCOL = {"n_components": 50, "n_neighbors": 15, "resolution": 1.0, "warmup_cells": 5000}
+PROTOCOL = {"n_components": 50, "n_neighbors": 15, "resolution": 1.0, "warmup_cells": 10000000}   # the whole input: N cells, N > any size
 ARMS = [{"random_seed": 0, "replicates": 6, "seed_stride": 0},   # same seed: nondeterminism, the timed runs
         {"random_seed": 1, "replicates": 5, "seed_stride": 1}]   # 5 seeds: seed sensitivity
 FIXED = set(PROTOCOL) | set(ARMS[0]) | {"replicate"}
