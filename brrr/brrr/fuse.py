@@ -189,6 +189,10 @@ def main(argv=None):
     p.add_argument("--warmup_cells", type=int, default=0)
     p.add_argument("--replicate", type=int, default=0)  # unused; separates same-seed output dirs
     a, rest = p.parse_known_args(argv)
+    # omnibenchmark api >= 0.8 adds `--output <id>=<path>` per declared output. The fuser keeps
+    # writing <output_dir>/<name>_<stage>.<ext>, which is where those paths point when the plan
+    # declares `{module.id}_embedding.tsv`, `{module.id}_neighbors.h5`, `{module.id}_clusters.tsv`.
+    rest = [x for i, x in enumerate(rest) if x != "--output" and not (i and rest[i - 1] == "--output")]
     stages = [tuple(s.split("=", 1)) for s in a.stages.split(",")]
     a.module = module_dir(a.module)
 
