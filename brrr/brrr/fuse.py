@@ -176,7 +176,8 @@ def chain(module, stages, params, data, out, name, seed, h):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    # allow_abbrev=False: otherwise `--output` (api 0.8) is read as an abbreviation of `--output_dir`
+    p = argparse.ArgumentParser(description=__doc__.split("\n")[0], allow_abbrev=False)
     p.add_argument("--module", required=True, help="a module checkout, or <git url>@<commit>")
     p.add_argument("--stages", required=True, help="name=script,... in chain order")
     p.add_argument("--input_flag", default="normalized_selected_h5", help="the first stage's input flag")
