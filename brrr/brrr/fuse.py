@@ -150,6 +150,7 @@ def chain(module, stages, params, data, out, name, seed, h):
     output files (written by h.flush(), after the caller's timed phase)."""
     ids = list(TYPES)  # embedding_tsv, neighbors_h5, clusters_tsv
     prev = ("--" + params.pop("_input_flag"), data)
+    shutil.rmtree(out, ignore_errors=True)  # a rerun's leftovers would read as "the stage wrote it itself"
     out.mkdir(parents=True, exist_ok=True)
     for i, (stage, script) in enumerate(stages):
         argv = [prev[0], str(prev[1]), "--output_dir", str(out), "--name", name, "--random_seed", str(seed)]
